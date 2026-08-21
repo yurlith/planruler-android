@@ -3,9 +3,13 @@
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroidSize
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,7 +53,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -209,15 +215,18 @@ internal fun Assembly3DViewerCard(
                         .semantics { contentDescription = sceneDescription }
                         .pointerInput(mesh) {
                             // A handle is a child hit target and wins. Everywhere else one finger orbits.
-                            detectTransformGestures(panZoomLock = false) { _, pan, gestureZoom, gestureRotation ->
-                                if (gestureZoom != 1f || abs(gestureRotation) > 0.01f) {
-                                    zoom = (zoom * gestureZoom).coerceIn(0.35f, 8.0f)
-                                    panX += pan.x
-                                    panY += pan.y
-                                } else {
-                                    yaw = normalizeDegrees(yaw + pan.x * 0.28f)
-                                    pitch = (pitch - pan.y * 0.22f).coerceIn(-88f, 88f)
-                                }
+                            detectSceneGestures3D { pointerCount, pan, gestureZoom ->
+                                val next = applySceneGesture3D(
+                                    SceneCameraGestureState3D(yaw, pitch, zoom, panX, panY),
+                                    pointerCount,
+                                    pan,
+                                    gestureZoom,
+                                )
+                                yaw = next.yaw
+                                pitch = next.pitch
+                                zoom = next.zoom
+                                panX = next.panX
+                                panY = next.panY
                                 controlHint = null
                             }
                         }
@@ -383,6 +392,34 @@ internal fun Assembly3DViewerCard(
             )
         }
     }
+}
+
+internal data class SceneCameraGestureState3D(
+    val yaw: Float,
+    val pitch: Float,
+    val zoom: Float,
+    val panX: Float,
+    val panY: Float,
+)
+
+/** One finger orbits; once a second finger joins, the whole gesture pans and zooms. */
+internal fun applySceneGesture3D(
+    state: SceneCameraGestureState3D,
+    pointerCount: Int,
+    pan: Offset,
+    zoomChange: Float,
+): SceneCameraGestureState3D = if (pointerCount >= 2) {
+    val safeZoom = zoomChange.takeIf { it.isFinite() && it > 0f } ?: 1f
+    state.copy(
+        zoom = (state.zoom * safeZoom).coerceIn(0.35f, 8.0f),
+        panX = state.panX + pan.x,
+        panY = state.panY + pan.y,
+    )
+} else {
+    state.copy(
+        yaw = normalizeDegrees(state.yaw + pan.x * 0.28f),
+        pitch = (state.pitch - pan.y * 0.22f).coerceIn(-88f, 88f),
+    )
 }
 
 @Composable
@@ -817,7 +854,49 @@ private fun scenePaint(color: Color, sizePx: Float, bold: Boolean = false) = Pai
     if (bold) typeface = android.graphics.Typeface.DEFAULT_BOLD
 }
 
-private fun normalizeDegrees(value: Float): Float {
+/**
+ * Compose's stock transform detector does not expose pointer count. That made a pure
+ * two-finger pan look exactly like a one-finger drag and orbit the model instead.
+ */
+private suspend fun PointerInputScope.detectSceneGestures3D(
+    onGesture: (pointerCount: Int, pan: Offset, zoom: Float) -> Unit,
+) {
+    awaitEachGesture {
+        awaitFirstDown(requireUnconsumed = false)
+        var pastTouchSlop = false
+        var accumulatedPan = Offset.Zero
+        var accumulatedZoom = 1f
+        var gesturePointerCount = 1
+        do {
+            val event = awaitPointerEvent()
+            if (event.changes.any { it.isConsumed }) break
+
+            gesturePointerCount = max(
+                gesturePointerCount,
+                event.changes.count { it.pressed || it.previousPressed },
+            )
+            val panChange = event.calculatePan()
+            val zoomChange = event.calculateZoom()
+            if (!pastTouchSlop) {
+                accumulatedPan += panChange
+                accumulatedZoom *= zoomChange
+                val panMotion = sqrt(
+                    accumulatedPan.x * accumulatedPan.x + accumulatedPan.y * accumulatedPan.y,
+                )
+                val zoomMotion = abs(1f - accumulatedZoom) * event.calculateCentroidSize(useCurrent = false)
+                pastTouchSlop = max(panMotion, zoomMotion) > viewConfiguration.touchSlop
+            }
+            if (pastTouchSlop) {
+                onGesture(gesturePointerCount, panChange, zoomChange)
+                event.changes.forEach { change ->
+                    if (change.positionChanged()) change.consume()
+                }
+            }
+        } while (event.changes.any { it.pressed })
+    }
+}
+
+internal fun normalizeDegrees(value: Float): Float {
     var result = value % 360f
     if (result > 180f) result -= 360f
     if (result < -180f) result += 360f
@@ -840,12 +919,12 @@ private class Model3DText(private val language: AppLanguage) {
 
     val title get() = t("Parametryczny model 3D", "Parametric 3D assembly", "Parametrische 3D-Baugruppe", "Assemblage 3D paramétrique", "Assieme 3D parametrico", "Параметрическая 3D-сборка")
     val subtitle get() = t(
-        "Przeciągnij, aby obrócić, uszczypnij, aby powiększyć i dotknij części.",
-        "Drag to orbit, pinch to zoom and tap a part to inspect it.",
-        "Ziehen zum Drehen, zoomen mit zwei Fingern und Bauteil antippen.",
-        "Faites glisser pour tourner, pincez pour zoomer et touchez une pièce.",
-        "Trascina per ruotare, pizzica per zoomare e tocca un componente.",
-        "Вращайте пальцем, масштабируйте щипком и нажимайте на детали.",
+        "Jeden palec obraca; dwa przesuwają i powiększają. Dotknij części, aby ją wybrać.",
+        "One finger orbits; two fingers pan and zoom. Tap a part to inspect it.",
+        "Ein Finger dreht; zwei Finger verschieben und zoomen. Bauteil antippen.",
+        "Un doigt tourne ; deux doigts déplacent et zooment. Touchez une pièce.",
+        "Un dito ruota; due dita spostano e zoomano. Tocca un componente.",
+        "Один палец вращает; два — сдвигают и масштабируют. Нажмите на деталь.",
     )
     val gestureHint get() = subtitle
     val perspective get() = t("Perspektywa", "Perspective", "Perspektive", "Perspective", "Prospettiva", "Перспектива")

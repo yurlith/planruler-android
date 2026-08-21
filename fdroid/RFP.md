@@ -4,12 +4,12 @@
 
 - Application name: PlanRuler
 - Package ID: `com.planruler.app`
-- Current version: `1.5.0` (`10500`)
+- Current version: `1.5.1` (`10501`)
 - Source: https://github.com/yurlith/planruler-android
 - Website: https://yurlith.github.io/planruler/
 - License: GPL-3.0-or-later
 - Issue tracker: https://github.com/yurlith/planruler-android/issues
-- Release tag: `v1.5.0`
+- Release tag: `v1.5.1`
 
 PlanRuler is an offline-first Android tool for measuring PDF/PNG/JPEG plans,
 calculating materials and workshop geometry, exporting results, and maintaining

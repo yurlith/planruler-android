@@ -14,7 +14,8 @@ Description: |-
   PlanRuler is an offline-first work centre for installers who need practical
   measurements and material estimates without an engineering-style interface.
 
-  Import PDF, PNG or JPEG plans, calibrate the scale and measure lengths,
+  Start immediately on a calibrated blank A4 sheet, or import PDF, PNG or JPEG
+  plans, calibrate the scale and measure lengths,
   polylines, areas, perimeters and angles. Organise measurements by project,
   layer, material and template, then export results as CSV, JSON or annotated
   PDF.
@@ -30,14 +31,14 @@ RepoType: git
 Repo: https://github.com/yurlith/planruler-android.git
 
 Builds:
-  - versionName: 1.5.0
-    versionCode: 10500
-    commit: v1.5.0
+  - versionName: 1.5.1
+    versionCode: 10501
+    commit: v1.5.1
     subdir: app
     gradle:
       - yes
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 1.5.0
-CurrentVersionCode: 10500
+CurrentVersion: 1.5.1
+CurrentVersionCode: 10501

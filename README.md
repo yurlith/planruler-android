@@ -76,7 +76,7 @@ java '-Dfile.encoding=UTF-8' -classpath .\gradle\wrapper\gradle-wrapper.jar org.
 Нужны JDK 17+ и Android SDK 36. Release AAB/APK подписываются локальным Play upload key
 из игнорируемого `keystore.properties`; ключи и пароли не хранятся в репозитории.
 
-Статус: `1.5.0`, подписанный release candidate. Предварительные HVAC-расчёты
+Статус: `1.5.1`, публичный open-source release. Предварительные HVAC-расчёты
 не являются заявлением соответствия SIA/DIN: нормативные профили заблокированы
 до сверки по лицензированным текстам и подписанным контрольным примерам.
 Актуальные проверки и ограничения описаны в `docs/TEST_REPORT.md` и

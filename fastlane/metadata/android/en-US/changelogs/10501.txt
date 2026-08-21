@@ -1,0 +1,5 @@
+Create drawings immediately on a calibrated blank A4 sheet, without a project setup step.
+
+- Fixed two-finger panning in the parametric 3D viewer.
+- Kept one-finger orbit and pinch zoom predictable and independent.
+- Added direct, auto-saved blank drawings with PDF, CSV and JSON export support.

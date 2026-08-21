@@ -106,20 +106,26 @@ class WorkspaceViewModel(
             is DocumentResult.Ok -> {
                 openDocuments[uri] = opened.value
                 val now = System.currentTimeMillis()
+                val blankCalibration = Calibration.pdfRatio(1.0).takeIf { BlankDocument.isBlankUri(uri) }
                 val project = PlanProject(
                     id = ProjectId(UUID.randomUUID().toString()),
-                    name = opened.value.title.substringBeforeLast("."),
+                    name = if (BlankDocument.isBlankUri(uri)) {
+                        blankDrawingTitle(settings.language)
+                    } else {
+                        opened.value.title.substringBeforeLast(".")
+                    },
                     createdAtEpochMs = now,
                     modifiedAtEpochMs = now,
                     documentUri = uri,
                     mimeType = mime.ifBlank { opened.value.mimeType },
                     pages = opened.value.pages,
                     displayUnit = settings.defaultUnit,
+                    calibration = blankCalibration,
                 )
                 when (projects.save(project)) {
                     is ProjectResult.Ok -> {
                         // restore rather than setDisplayUnit: a fresh project must not start with an undo step.
-                        engine.restore(null, settings.defaultUnit, emptyList())
+                        engine.restore(blankCalibration, settings.defaultUnit, emptyList())
                         mutableUi.value = WorkspaceUiState(project = project, document = opened.value)
                         render(0)
                     }
@@ -134,6 +140,15 @@ class WorkspaceViewModel(
                 }
             }
         }
+    }
+
+    private fun blankDrawingTitle(language: AppLanguage): String = when (language) {
+        AppLanguage.POLISH -> "Nowy rysunek"
+        AppLanguage.ENGLISH -> "Untitled drawing"
+        AppLanguage.GERMAN -> "Neue Zeichnung"
+        AppLanguage.FRENCH -> "Nouveau dessin"
+        AppLanguage.ITALIAN -> "Nuovo disegno"
+        AppLanguage.RUSSIAN -> "Новый чертёж"
     }
 
     private suspend fun loadProject(id: ProjectId) {

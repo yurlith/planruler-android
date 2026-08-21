@@ -40,6 +40,27 @@ class AndroidDocumentGateway(context: Context) : DocumentGateway, TileDocumentGa
     override suspend fun open(uri: String): DocumentResult<OpenedDocument> = withContext(Dispatchers.IO) {
         try {
             val parsed = Uri.parse(uri)
+            if (BlankDocument.isBlankUri(uri)) {
+                val id = DocumentId(UUID.randomUUID().toString())
+                val pages = listOf(BlankDocument.page)
+                open[id] = Stored(
+                    uri = parsed,
+                    title = BlankDocument.TITLE,
+                    mime = BlankDocument.MIME_TYPE,
+                    kind = DocumentKind.BLANK,
+                    pages = pages,
+                    imageOrientation = ExifInterface.ORIENTATION_NORMAL,
+                )
+                return@withContext DocumentResult.Ok(
+                    OpenedDocument(
+                        id = id,
+                        title = BlankDocument.TITLE,
+                        mimeType = BlankDocument.MIME_TYPE,
+                        kind = DocumentKind.BLANK,
+                        pages = pages,
+                    ),
+                )
+            }
             runCatching {
                 app.contentResolver.takePersistableUriPermission(parsed, Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
@@ -64,6 +85,7 @@ class AndroidDocumentGateway(context: Context) : DocumentGateway, TileDocumentGa
                 }
                 }
                 DocumentKind.IMAGE -> listOf(requireNotNull(imageInfo).metadata)
+                DocumentKind.BLANK -> error("Blank documents are opened before provider inspection")
             }
             val id = DocumentId(UUID.randomUUID().toString())
             open[id] = Stored(
@@ -107,6 +129,7 @@ class AndroidDocumentGateway(context: Context) : DocumentGateway, TileDocumentGa
                 val rendered = when (stored.kind) {
                     DocumentKind.PDF -> renderPdf(stored, documentId, pageIndex, maxEdge, request.rotationDegrees)
                     DocumentKind.IMAGE -> renderImage(stored, documentId, maxEdge, request.rotationDegrees)
+                    DocumentKind.BLANK -> renderBlank(stored, documentId, pageIndex, maxEdge, request.rotationDegrees)
                 }
                 coroutineContext.ensureActive()
                 cache.put(key, rendered)
@@ -149,6 +172,7 @@ class AndroidDocumentGateway(context: Context) : DocumentGateway, TileDocumentGa
                 val bitmap = when (stored.kind) {
                     DocumentKind.PDF -> pdfTile(stored, request.pageIndex, left, top, right, bottom, pixelWidth, pixelHeight)
                     DocumentKind.IMAGE -> imageTile(stored, metadata, left, top, right, bottom, pixelWidth, pixelHeight)
+                    DocumentKind.BLANK -> blankTile(pixelWidth, pixelHeight)
                 }
                 coroutineContext.ensureActive()
                 val tile = try {
@@ -302,6 +326,24 @@ class AndroidDocumentGateway(context: Context) : DocumentGateway, TileDocumentGa
             scaled.recycle()
         }
     }
+
+    private fun renderBlank(stored: Stored, id: DocumentId, index: Int, maxEdge: Int, rotation: Int): RenderedPage {
+        val metadata = stored.pages[index]
+        val scale = maxEdge.toDouble() / max(metadata.width, metadata.height)
+        val width = (metadata.width * scale).roundToInt().coerceAtLeast(1)
+        val height = (metadata.height * scale).roundToInt().coerceAtLeast(1)
+        val bitmap = blankTile(width, height)
+        return try {
+            bitmap.toRendered(id, index, metadata, rotation)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun blankTile(width: Int, height: Int): Bitmap =
+        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.WHITE)
+        }
 
     private fun Bitmap.toRendered(id: DocumentId, index: Int, metadata: PageMetadata, rotation: Int): RenderedPage {
         val normalized = ((rotation % 360) + 360) % 360

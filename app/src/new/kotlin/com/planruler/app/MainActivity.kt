@@ -18,6 +18,7 @@ import com.planruler.backup.EncryptedBackupCodec
 import com.planruler.backup.PlanRulerBackupPayload
 import com.planruler.designsystem.theme.PlanRulerTheme
 import com.planruler.designsystem.localization.localizedUi
+import com.planruler.document.api.BlankDocument
 import com.planruler.export.api.ExportFormat
 import com.planruler.export.api.ExportPageSelection
 import com.planruler.feature.projects.ProjectsScreen
@@ -217,6 +218,13 @@ private fun PlanRulerRoot(
             settings = settings,
             onSettings = onSettings,
             onImport = { importer.launch(arrayOf("application/pdf", "image/png", "image/jpeg")) },
+            onNewDrawing = {
+                val uri = BlankDocument.uri(UUID.randomUUID().toString())
+                importUri = uri
+                importMime = BlankDocument.MIME_TYPE
+                workspaceKey = uri
+                projectsInitialTab = ProjectsTab.PROJECTS
+            },
             onOpen = {
                 projectsInitialTab = ProjectsTab.PROJECTS
                 projectId = it.id.value

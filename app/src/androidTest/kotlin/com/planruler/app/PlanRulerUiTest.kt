@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.click
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -61,6 +62,24 @@ class PlanRulerUiTest {
     fun projectsScreenExposesAccessibleImportAction() {
         compose.onNodeWithTag(PlanRulerTestTags.HomeRoot).assertIsDisplayed()
         compose.onNodeWithTag(PlanRulerTestTags.ProjectsFab).assertIsDisplayed()
+    }
+
+    @Test
+    fun blankDrawingOpensDirectlyAndAcceptsARealMeasurement() {
+        compose.onNodeWithTag(PlanRulerTestTags.HomeRoot)
+            .performScrollToNode(androidx.compose.ui.test.hasTestTag(PlanRulerTestTags.NewDrawing))
+        compose.onNodeWithTag(PlanRulerTestTags.NewDrawing).performClick()
+        compose.waitUntil(10_000) {
+            compose.onAllNodes(androidx.compose.ui.test.hasTestTag(PlanRulerTestTags.WorkspaceCanvas))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+
+        compose.onNodeWithTag(PlanRulerTestTags.tool("DISTANCE")).performClick()
+        compose.onNodeWithTag(PlanRulerTestTags.WorkspaceCanvas).performTouchInput {
+            click(center - Offset(120f, 0f))
+            click(center + Offset(120f, 0f))
+        }
+        compose.onNodeWithTag(PlanRulerTestTags.Undo).assertIsDisplayed()
     }
 
     @Test

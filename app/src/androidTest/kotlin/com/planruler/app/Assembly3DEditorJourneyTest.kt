@@ -378,6 +378,17 @@ class Assembly3DEditorJourneyTest {
             )
         }
         compose.waitForIdle()
+        canvas.performTouchInput {
+            val first = center - Offset(80f, 40f)
+            val second = center + Offset(80f, 40f)
+            down(0, first)
+            down(1, second)
+            moveTo(0, first + Offset(70f, 55f), 250L)
+            moveTo(1, second + Offset(70f, 55f), 250L)
+            up(0)
+            up(1)
+        }
+        compose.waitForIdle()
 
         listOf("Top", "Right", "Front", "Isometric").forEach(::tapText)
 

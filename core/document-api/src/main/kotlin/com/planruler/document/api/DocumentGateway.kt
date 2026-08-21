@@ -3,7 +3,32 @@ package com.planruler.document.api
 import com.planruler.model.DocumentId
 import com.planruler.model.PageMetadata
 
-enum class DocumentKind { PDF, IMAGE }
+enum class DocumentKind { PDF, IMAGE, BLANK }
+
+/**
+ * A persistent, file-free A4 sheet used by the quick "New drawing" action.
+ *
+ * Its coordinates are PDF points, so the normal 1:1 PDF calibration applies and
+ * annotated PDF export preserves the physical A4 page size.
+ */
+object BlankDocument {
+    const val URI_PREFIX = "planruler://blank/a4-landscape"
+    const val MIME_TYPE = "application/x-planruler-blank"
+    const val TITLE = "Untitled drawing"
+    const val WIDTH_POINTS = 841.889_763_779_527_6
+    const val HEIGHT_POINTS = 595.275_590_551_181_2
+
+    val page = PageMetadata(
+        index = 0,
+        width = WIDTH_POINTS,
+        height = HEIGHT_POINTS,
+        coordinateUnit = PageMetadata.CoordinateUnit.PDF_POINT,
+    )
+
+    fun uri(draftId: String): String = "$URI_PREFIX/${draftId.filter(Char::isLetterOrDigit)}"
+    fun isBlankUri(uri: String): Boolean = uri == URI_PREFIX || uri.startsWith("$URI_PREFIX/")
+}
+
 data class OpenedDocument(
     val id: DocumentId,
     val title: String,

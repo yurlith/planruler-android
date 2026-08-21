@@ -341,7 +341,7 @@ class St(private val currentLanguage: AppLanguage) {
             "Все документы обрабатываются локально. Приложение не загружает проекты на сервер и не требует аккаунта.",
             "Everything is processed locally. The app uploads nothing and needs no account.",
         )
-    val version get() = "PlanRuler 1.5.0 alpha 1"
+    val version get() = "PlanRuler 1.5.1"
 
     fun themeLabel(theme: ThemePreference) = when (theme) {
         ThemePreference.SYSTEM -> t("Системная", "System")

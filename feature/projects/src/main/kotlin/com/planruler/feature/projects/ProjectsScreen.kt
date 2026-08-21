@@ -93,6 +93,7 @@ fun ProjectsScreen(
     settings: AppSettings,
     onSettings: (AppSettings) -> Unit,
     onImport: () -> Unit,
+    onNewDrawing: () -> Unit,
     onOpen: (PlanProject) -> Unit,
     onRename: (PlanProject, String) -> Unit,
     onDuplicate: (PlanProject) -> Unit,
@@ -272,6 +273,7 @@ fun ProjectsScreen(
                         projects = projects,
                         language = settings.language,
                         onImport = onImport,
+                        onNewDrawing = onNewDrawing,
                         onOpen = onOpen,
                         onProjects = { tab = ProjectsTab.PROJECTS },
                         onWorkshop = { tab = ProjectsTab.WORKSHOP },
@@ -301,6 +303,7 @@ fun ProjectsScreen(
                         language = settings.language,
                         view = settings.projectView,
                         onImport = onImport,
+                        onNewDrawing = onNewDrawing,
                         onOpen = onOpen,
                         onRename = { project -> renameProject = project; renameText = project.name },
                         onDuplicate = onDuplicate,
@@ -391,6 +394,7 @@ private fun HomeDashboard(
     projects: List<PlanProject>,
     language: AppLanguage,
     onImport: () -> Unit,
+    onNewDrawing: () -> Unit,
     onOpen: (PlanProject) -> Unit,
     onProjects: () -> Unit,
     onWorkshop: () -> Unit,
@@ -428,6 +432,16 @@ private fun HomeDashboard(
         item {
             PlanRulerToolTile(
                 icon = PlanRulerIcons.Plus,
+                title = newDrawingTitle(language),
+                body = newDrawingBody(language),
+                onClick = onNewDrawing,
+                modifier = Modifier.testTag(PlanRulerTestTags.NewDrawing),
+                accent = MaterialTheme.colorScheme.primary,
+            )
+        }
+        item {
+            PlanRulerToolTile(
+                icon = PlanRulerIcons.Document,
                 title = uiText(language, UiTextKey.IMPORT_PLAN),
                 body = uiText(language, UiTextKey.PROJECTS_SUBTITLE),
                 onClick = onImport,
@@ -532,6 +546,7 @@ private fun ProjectsContent(
     language: AppLanguage,
     view: ProjectView,
     onImport: () -> Unit,
+    onNewDrawing: () -> Unit,
     onOpen: (PlanProject) -> Unit,
     onRename: (PlanProject) -> Unit,
     onDuplicate: (PlanProject) -> Unit,
@@ -572,7 +587,17 @@ private fun ProjectsContent(
                     modifier = Modifier.align(Alignment.Center),
                 ) {
                     if (filter != ProjectFilter.TRASH) {
-                        Button(onImport, Modifier.testTag(PlanRulerTestTags.ProjectsFab)) { Text(text.importPlan) }
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(Space.x2),
+                        ) {
+                            Button(onNewDrawing, Modifier.testTag(PlanRulerTestTags.NewDrawing)) {
+                                Text(text.newDrawing)
+                            }
+                            TextButton(onImport, Modifier.testTag(PlanRulerTestTags.ProjectsFab)) {
+                                Text(text.importPlan)
+                            }
+                        }
                     }
                 }
                 visible.isEmpty() -> EmptyState(
@@ -829,11 +854,12 @@ class Pt(private val language: AppLanguage) {
     val view get() = t("Вид", "View")
     val menu get() = t("Меню проекта", "Project menu")
     val importPlan get() = t("Импортировать план", "Import plan")
-    val emptyTitle get() = t("Начните с плана", "Start with a plan")
+    val newDrawing get() = newDrawingTitle(language)
+    val emptyTitle get() = t("Начните с чертежа или плана", "Start with a drawing or plan")
     val empty
         get() = t(
-            "Импортируйте PDF или изображение, чтобы начать измерения.",
-            "Import a PDF or image to start measuring.",
+            "Откройте пустой лист или импортируйте PDF/изображение.",
+            "Open a blank sheet or import a PDF/image.",
         )
     val nothingFound get() = t("Ничего не найдено", "Nothing found")
     val nothingFoundBody get() = t("Измените запрос или сбросьте фильтры.", "Change the query or reset the filters.")
@@ -887,4 +913,22 @@ class Pt(private val language: AppLanguage) {
         IndicatorStatus.ERROR -> t("нет масштаба", "no scale")
         IndicatorStatus.NEUTRAL -> ""
     }
+}
+
+private fun newDrawingTitle(language: AppLanguage): String = when (language) {
+    AppLanguage.POLISH -> "Nowy rysunek"
+    AppLanguage.ENGLISH -> "New drawing"
+    AppLanguage.GERMAN -> "Neue Zeichnung"
+    AppLanguage.FRENCH -> "Nouveau dessin"
+    AppLanguage.ITALIAN -> "Nuovo disegno"
+    AppLanguage.RUSSIAN -> "Новый чертёж"
+}
+
+private fun newDrawingBody(language: AppLanguage): String = when (language) {
+    AppLanguage.POLISH -> "Zacznij od pustego arkusza A4 bez konfiguracji projektu."
+    AppLanguage.ENGLISH -> "Start on a blank A4 sheet without project setup."
+    AppLanguage.GERMAN -> "Ohne Projekteinrichtung auf einem leeren A4-Blatt beginnen."
+    AppLanguage.FRENCH -> "Commencez sur une feuille A4 vierge sans configurer de projet."
+    AppLanguage.ITALIAN -> "Inizia su un foglio A4 vuoto senza configurare un progetto."
+    AppLanguage.RUSSIAN -> "Начните на пустом листе A4 без настройки проекта."
 }

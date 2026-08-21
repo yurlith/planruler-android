@@ -7,6 +7,7 @@ package com.planruler.designsystem
 object PlanRulerTestTags {
     const val ProjectsList = "pr:projects:list"
     const val ProjectsFab = "pr:projects:fab"
+    const val NewDrawing = "pr:projects:new-drawing"
     const val ProjectsSearch = "pr:projects:search"
     const val ProjectCard = "pr:projects:card"
     const val HomeRoot = "pr:home:root"
