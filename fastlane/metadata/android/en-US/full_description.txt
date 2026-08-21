@@ -1,0 +1,9 @@
+PlanRuler is an offline-first work centre for installers who need practical measurements and material estimates without an engineering-style interface.
+
+Import PDF, PNG or JPEG plans, calibrate the scale and measure lengths, polylines, areas, perimeters and angles. Organise measurements by project, layer, material and template, then export results as CSV, JSON or annotated PDF.
+
+The workshop brings common installation tasks into one place: pipe and fabrication calculations, flange-offset geometry, cutting lengths, welding gaps, bolt-circle data and stock-cut planning. Projects and calculations stay available without an internet connection.
+
+PlanRuler also includes an optional local CRM for clients and work orders. CRM data is stored on the device and sensitive fields are encrypted with Android Keystore. There is no cloud account, advertising, analytics or tracking SDK.
+
+Preliminary HVAC and installation calculations are field estimates. They do not replace a qualified engineer, applicable standards or on-site verification.

@@ -1,0 +1,6 @@
+Initial public source release.
+
+- Measure PDF, PNG and JPEG plans after scale calibration.
+- Calculate lengths, areas, materials and workshop geometry.
+- Manage projects and the optional local CRM offline.
+- Export CSV, JSON and annotated PDF results.

@@ -1,0 +1,9 @@
+PlanRuler
+Copyright (C) 2026 VeraqisTech
+
+PlanRuler source code and bundled PlanRuler artwork are licensed under the
+GNU General Public License, version 3 or (at your option) any later version.
+Third-party libraries retain their respective licences.
+
+PlanRuler includes no advertising or tracking SDK. The application is designed
+to work offline and does not request the Android INTERNET permission.

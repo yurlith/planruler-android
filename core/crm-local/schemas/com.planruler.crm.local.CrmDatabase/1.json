@@ -1,0 +1,449 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "c58ce7e6d1d9d9c6f42d177515302541",
+    "entities": [
+      {
+        "tableName": "local_profiles",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `displayNameEncrypted` TEXT NOT NULL, `companyNameEncrypted` TEXT NOT NULL, `role` TEXT NOT NULL, `pinSaltBase64` TEXT NOT NULL, `pinHashBase64` TEXT NOT NULL, `pinIterations` INTEGER NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `lastUsedAtEpochMs` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayNameEncrypted",
+            "columnName": "displayNameEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "companyNameEncrypted",
+            "columnName": "companyNameEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "role",
+            "columnName": "role",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinSaltBase64",
+            "columnName": "pinSaltBase64",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinHashBase64",
+            "columnName": "pinHashBase64",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pinIterations",
+            "columnName": "pinIterations",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "lastUsedAtEpochMs",
+            "columnName": "lastUsedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "crm_clients",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `profileId` TEXT NOT NULL, `displayNameEncrypted` TEXT NOT NULL, `companyNameEncrypted` TEXT NOT NULL, `phoneEncrypted` TEXT NOT NULL, `emailEncrypted` TEXT NOT NULL, `noteEncrypted` TEXT NOT NULL, `createdAtEpochMs` INTEGER NOT NULL, `modifiedAtEpochMs` INTEGER NOT NULL, `archivedAtEpochMs` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`profileId`) REFERENCES `local_profiles`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "displayNameEncrypted",
+            "columnName": "displayNameEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "companyNameEncrypted",
+            "columnName": "companyNameEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phoneEncrypted",
+            "columnName": "phoneEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "emailEncrypted",
+            "columnName": "emailEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "noteEncrypted",
+            "columnName": "noteEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedAtEpochMs",
+            "columnName": "modifiedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archivedAtEpochMs",
+            "columnName": "archivedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_crm_clients_profileId",
+            "unique": false,
+            "columnNames": [
+              "profileId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_crm_clients_profileId` ON `${TABLE_NAME}` (`profileId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "local_profiles",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "profileId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "crm_sites",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `profileId` TEXT NOT NULL, `clientId` TEXT NOT NULL, `nameEncrypted` TEXT NOT NULL, `addressEncrypted` TEXT NOT NULL, `noteEncrypted` TEXT NOT NULL, `projectId` TEXT, `createdAtEpochMs` INTEGER NOT NULL, `modifiedAtEpochMs` INTEGER NOT NULL, `archivedAtEpochMs` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`profileId`) REFERENCES `local_profiles`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`clientId`) REFERENCES `crm_clients`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientId",
+            "columnName": "clientId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "nameEncrypted",
+            "columnName": "nameEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "addressEncrypted",
+            "columnName": "addressEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "noteEncrypted",
+            "columnName": "noteEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "projectId",
+            "columnName": "projectId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedAtEpochMs",
+            "columnName": "modifiedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archivedAtEpochMs",
+            "columnName": "archivedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_crm_sites_profileId",
+            "unique": false,
+            "columnNames": [
+              "profileId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_crm_sites_profileId` ON `${TABLE_NAME}` (`profileId`)"
+          },
+          {
+            "name": "index_crm_sites_clientId",
+            "unique": false,
+            "columnNames": [
+              "clientId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_crm_sites_clientId` ON `${TABLE_NAME}` (`clientId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "local_profiles",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "profileId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "crm_clients",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "clientId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "work_orders",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `profileId` TEXT NOT NULL, `clientId` TEXT NOT NULL, `siteId` TEXT, `titleEncrypted` TEXT NOT NULL, `descriptionEncrypted` TEXT NOT NULL, `stage` TEXT NOT NULL, `scheduledAtEpochMs` INTEGER, `dueAtEpochMs` INTEGER, `quoteAmountMinor` INTEGER, `currencyCode` TEXT NOT NULL, `projectId` TEXT, `createdAtEpochMs` INTEGER NOT NULL, `modifiedAtEpochMs` INTEGER NOT NULL, `archivedAtEpochMs` INTEGER, PRIMARY KEY(`id`), FOREIGN KEY(`profileId`) REFERENCES `local_profiles`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , FOREIGN KEY(`clientId`) REFERENCES `crm_clients`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "profileId",
+            "columnName": "profileId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "clientId",
+            "columnName": "clientId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "siteId",
+            "columnName": "siteId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "titleEncrypted",
+            "columnName": "titleEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "descriptionEncrypted",
+            "columnName": "descriptionEncrypted",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "stage",
+            "columnName": "stage",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "scheduledAtEpochMs",
+            "columnName": "scheduledAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "dueAtEpochMs",
+            "columnName": "dueAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "quoteAmountMinor",
+            "columnName": "quoteAmountMinor",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "currencyCode",
+            "columnName": "currencyCode",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "projectId",
+            "columnName": "projectId",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAtEpochMs",
+            "columnName": "createdAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "modifiedAtEpochMs",
+            "columnName": "modifiedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "archivedAtEpochMs",
+            "columnName": "archivedAtEpochMs",
+            "affinity": "INTEGER",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_work_orders_profileId",
+            "unique": false,
+            "columnNames": [
+              "profileId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_work_orders_profileId` ON `${TABLE_NAME}` (`profileId`)"
+          },
+          {
+            "name": "index_work_orders_clientId",
+            "unique": false,
+            "columnNames": [
+              "clientId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_work_orders_clientId` ON `${TABLE_NAME}` (`clientId`)"
+          },
+          {
+            "name": "index_work_orders_siteId",
+            "unique": false,
+            "columnNames": [
+              "siteId"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_work_orders_siteId` ON `${TABLE_NAME}` (`siteId`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "local_profiles",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "profileId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          },
+          {
+            "table": "crm_clients",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "clientId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'c58ce7e6d1d9d9c6f42d177515302541')"
+    ]
+  }
+}

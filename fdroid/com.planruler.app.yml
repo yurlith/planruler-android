@@ -1,0 +1,43 @@
+Categories:
+  - Science & Education
+License: GPL-3.0-or-later
+AuthorName: VeraqisTech
+AuthorEmail: support@veraqis.tech
+WebSite: https://yurlith.github.io/planruler/
+SourceCode: https://github.com/yurlith/planruler-android
+IssueTracker: https://github.com/yurlith/planruler-android/issues
+Changelog: https://github.com/yurlith/planruler-android/releases
+
+AutoName: PlanRuler
+Summary: Measure plans and calculate materials offline
+Description: |-
+  PlanRuler is an offline-first work centre for installers who need practical
+  measurements and material estimates without an engineering-style interface.
+
+  Import PDF, PNG or JPEG plans, calibrate the scale and measure lengths,
+  polylines, areas, perimeters and angles. Organise measurements by project,
+  layer, material and template, then export results as CSV, JSON or annotated
+  PDF.
+
+  The workshop includes pipe and fabrication calculations, flange-offset
+  geometry, cutting lengths, welding gaps, bolt-circle data and stock-cut
+  planning. An optional local CRM stores clients and work orders on the device.
+
+  The app has no cloud account, advertising, analytics or tracking SDK and does
+  not request Internet access.
+
+RepoType: git
+Repo: https://github.com/yurlith/planruler-android.git
+
+Builds:
+  - versionName: 1.5.0
+    versionCode: 10500
+    commit: v1.5.0
+    subdir: app
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 1.5.0
+CurrentVersionCode: 10500
