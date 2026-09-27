@@ -94,6 +94,8 @@ class ScreenGalleryTest {
         settle { true }
         shot("08-3d")
         runCatching {
+            compose.onNode(hasTestTag(PipeCalculatorTags.InstallationList))
+                .performScrollToNode(androidx.compose.ui.test.hasContentDescription("Во весь экран"))
             compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Во весь экран"))
                 .onFirst().performClick()
         }
