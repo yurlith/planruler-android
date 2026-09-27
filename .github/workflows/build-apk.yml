@@ -22,23 +22,38 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v6
-      - name: Unit tests and release build
+      - name: Release build
         run: |
           chmod +x gradlew
-          ./gradlew test :app:assembleRelease --stacktrace --continue
-      - name: Upload test reports
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: test-reports
-          path: '**/build/reports/tests/'
-      - name: Publish unsigned APK as prerelease
+          ./gradlew :app:assembleRelease --stacktrace
+      - name: Unit and screenshot tests
+        id: tests
+        continue-on-error: true
+        run: ./gradlew test --continue --stacktrace
+      - name: Publish APK, screenshots and reports as prerelease
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           tag="build-${GITHUB_RUN_NUMBER}"
-          cp app/build/outputs/apk/release/app-release-unsigned.apk "planruler-${tag}-unsigned.apk"
-          gh release create "$tag" "planruler-${tag}-unsigned.apk" \
+          files=()
+          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp app/build/outputs/apk/release/app-release-unsigned.apk "planruler-${tag}-unsigned.apk"
+            files+=("planruler-${tag}-unsigned.apk")
+          fi
+          if [ -d app/build/outputs/roborazzi ]; then
+            (cd app/build/outputs/roborazzi && zip -qr "$GITHUB_WORKSPACE/screenshots-${tag}.zip" .)
+            files+=("screenshots-${tag}.zip")
+          fi
+          reports=$(find . -path '*/build/reports/tests' -type d | head -50)
+          if [ -n "$reports" ]; then
+            zip -qr "test-reports-${tag}.zip" $reports
+            files+=("test-reports-${tag}.zip")
+          fi
+          gh release create "$tag" "${files[@]}" \
             --prerelease --target "$GITHUB_SHA" \
             --title "Test build ${GITHUB_RUN_NUMBER} (${GITHUB_REF_NAME})" \
-            --notes "Unsigned CI build of ${GITHUB_SHA}. Sign before installing."
+            --notes "Unsigned CI build of ${GITHUB_SHA}. Tests: ${{ steps.tests.outcome }}."
+      - name: Fail when tests failed
+        if: steps.tests.outcome != 'success'
+        run: exit 1
