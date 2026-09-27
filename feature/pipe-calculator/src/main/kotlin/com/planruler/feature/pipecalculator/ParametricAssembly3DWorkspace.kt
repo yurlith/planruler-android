@@ -294,6 +294,7 @@ internal fun ParametricAssembly3DCard(
             Assembly3DViewerCard(
                 assembly = assembly,
                 mesh = state.mesh,
+                meshBuilding = state.meshBuilding,
                 language = language,
                 dimensionTarget = dimensionTarget,
                 selectedPartId = state.selectedPartId,

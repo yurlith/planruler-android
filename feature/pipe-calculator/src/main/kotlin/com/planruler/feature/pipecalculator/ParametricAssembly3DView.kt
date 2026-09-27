@@ -36,6 +36,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
@@ -156,6 +157,7 @@ internal fun Assembly3DViewerCard(
     /** Null while the engine is still tessellating, or when the scene exceeds its quota. */
     mesh: AssemblyMesh3D?,
     dimensionTarget: Vec3?,
+    meshBuilding: Boolean = false,
     selectedPartId: String? = null,
     onSelectPart: (String) -> Unit = {},
     editor: ChainEditorState3D? = null,
@@ -189,11 +191,22 @@ internal fun Assembly3DViewerCard(
 
     if (mesh == null) {
         ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp)) {
-            Text(
-                text.meshUnavailable,
-                Modifier.fillMaxWidth().padding(16.dp).testTag(PipeCalculatorTags.Assembly3DCanvas),
-                fontWeight = FontWeight.Bold,
-            )
+            if (meshBuilding) {
+                Row(
+                    Modifier.fillMaxWidth().height(160.dp).padding(16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
+                    Text(text.meshBuilding, Modifier.padding(start = 12.dp), fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Text(
+                    text.meshUnavailable,
+                    Modifier.fillMaxWidth().padding(16.dp).testTag(PipeCalculatorTags.Assembly3DCanvas),
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
         return
     }
@@ -1123,6 +1136,7 @@ private class Model3DText(private val language: AppLanguage) {
         "Один палец вращает; два — сдвигают и масштабируют. Нажмите на деталь.",
     )
     val gestureHint get() = subtitle
+    val meshBuilding get() = t("Buduję model 3D…", "Building the 3D model…", "3D-Modell wird erstellt…", "Création du modèle 3D…", "Creazione del modello 3D…", "Строим 3D-модель…")
     val zoomIn get() = t("Powiększ", "Zoom in", "Vergrößern", "Zoom avant", "Ingrandisci", "Увеличить")
     val zoomOut get() = t("Pomniejsz", "Zoom out", "Verkleinern", "Zoom arrière", "Riduci", "Уменьшить")
     val resetView get() = t("Dopasuj widok", "Fit view", "Ansicht einpassen", "Ajuster la vue", "Adatta vista", "Вписать модель")

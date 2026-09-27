@@ -56,6 +56,8 @@ internal data class Assembly3DUiState(
     val activeBranch: ChainPath3D = ChainPath3D.ROOT,
     val error: Fabrication3DError? = null,
     val busy: Boolean = false,
+    /** A mesh is being tessellated; a missing mesh then means "wait", not "too large". */
+    val meshBuilding: Boolean = false,
     val selfIntersections: List<AssemblyIssue3D> = emptyList(),
 ) {
     val shownAssembly: ParametricAssembly3D?
@@ -313,17 +315,22 @@ internal class Assembly3DViewModel(
         val assembly = current.shownAssembly
         meshJob?.cancel()
         if (assembly == null) {
-            _state.update { it.copy(mesh = null, selfIntersections = emptyList()) }
+            _state.update { it.copy(mesh = null, meshBuilding = false, selfIntersections = emptyList()) }
             return
         }
+        _state.update { it.copy(meshBuilding = true) }
         meshJob = viewModelScope.launch {
             val built = withContext(background) { engine.mesh.build(assembly, current.quality) }
             val intersections = withContext(background) { engine.graph.selfIntersections(assembly) }
             coroutineContext.ensureActive()
             built.fold(
-                onOk = { mesh -> _state.update { it.copy(mesh = mesh, selfIntersections = intersections) } },
+                onOk = { mesh ->
+                    _state.update { it.copy(mesh = mesh, meshBuilding = false, selfIntersections = intersections) }
+                },
                 onFailure = { error ->
-                    _state.update { it.copy(mesh = null, error = error, selfIntersections = intersections) }
+                    _state.update {
+                        it.copy(mesh = null, meshBuilding = false, error = error, selfIntersections = intersections)
+                    }
                 },
             )
         }

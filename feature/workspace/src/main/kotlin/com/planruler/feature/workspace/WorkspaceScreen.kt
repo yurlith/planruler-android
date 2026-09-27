@@ -764,7 +764,6 @@ fun WorkspaceScreen(
                             horizontalArrangement = Arrangement.spacedBy(Space.x1),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            TextButton({ fitPage() }) { Text(text.fitPage) }
                             TextButton({
                                 viewport = viewport.copy(zoom = 1.0)
                                 viewModel.updateViewport(viewport)
