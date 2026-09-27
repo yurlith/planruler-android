@@ -3,6 +3,7 @@ package com.planruler.app
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
@@ -93,9 +94,8 @@ class ScreenGalleryTest {
         settle { true }
         shot("08-3d")
         runCatching {
-            compose.onNode(hasTestTag(PipeCalculatorTags.InstallationList))
-                .performScrollToNode(hasText("Открыть 3D-верстак на весь экран"))
-            compose.onNode(hasText("Открыть 3D-верстак на весь экран")).performClick()
+            compose.onAllNodes(androidx.compose.ui.test.hasContentDescription("Во весь экран"))
+                .onFirst().performClick()
         }
         settle { true }
         compose.onAllNodes(androidx.compose.ui.test.isRoot()).onLast()
