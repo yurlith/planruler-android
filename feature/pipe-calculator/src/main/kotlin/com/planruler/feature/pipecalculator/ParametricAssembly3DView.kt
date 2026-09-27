@@ -771,7 +771,12 @@ private fun DrawScope.drawShadedMesh(
             visible += index
         }
     }
-    val order = visible.sortedBy { depth[it] }
+    // The bore always lies inside its own wall, but long thin wall and bore triangles have
+    // almost the same centroid depth and interleave into stripes. Painting every bore first
+    // lets the outer surfaces cover it; it still shows through open pipe ends.
+    val order = visible.sortedWith(
+        compareBy<Int>({ triangles[it].material != MeshMaterial3D.INNER_BORE }, { depth[it] }),
+    )
     val colors = IntArray(order.size * 3)
     order.forEachIndexed { slot, index ->
         val triangle = triangles[index]
@@ -838,7 +843,7 @@ private fun DrawScope.drawGroundShadow(
     val floorZ = bounds.minimum.z - bounds.size.z * 0.12
     val rx = (bounds.size.x / 2.0).coerceAtLeast(bounds.radius * 0.25) * 1.08
     val ry = (bounds.size.y / 2.0).coerceAtLeast(bounds.radius * 0.25) * 1.08
-    listOf(1.0f to 0.05f, 0.78f to 0.06f, 0.55f to 0.07f).forEach { (scale, alpha) ->
+    listOf(0.9f to 0.035f, 0.7f to 0.04f, 0.5f to 0.045f).forEach { (scale, alpha) ->
         val points = (0 until 36).map { step ->
             val angle = step * 2.0 * Math.PI / 36.0
             projector.project(
