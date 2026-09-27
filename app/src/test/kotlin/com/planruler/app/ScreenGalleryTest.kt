@@ -3,6 +3,7 @@ package com.planruler.app
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
@@ -91,6 +92,14 @@ class ScreenGalleryTest {
         }
         settle { true }
         shot("08-3d")
+        runCatching {
+            compose.onNode(hasTestTag(PipeCalculatorTags.InstallationList))
+                .performScrollToNode(hasText("Открыть 3D-верстак на весь экран"))
+            compose.onNode(hasText("Открыть 3D-верстак на весь экран")).performClick()
+        }
+        settle { true }
+        compose.onAllNodes(androidx.compose.ui.test.isRoot()).onLast()
+            .captureRoboImage("build/outputs/roborazzi/08b-3d-workbench.png")
     }
 
     @Test

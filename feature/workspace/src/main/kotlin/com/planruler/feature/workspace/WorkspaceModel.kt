@@ -164,7 +164,6 @@ class Wt(private val language: AppLanguage) {
     val projectMenu get() = t("Меню проекта", "Project menu")
     val zoomLabel get() = t("Масштаб экрана", "Zoom")
     val fitPage get() = t("Вписать страницу", "Fit page")
-    val actualSize get() = t("100 %", "100 %")
     val zoomIn get() = t("Увеличить", "Zoom in")
     val zoomOut get() = t("Уменьшить", "Zoom out")
     val toSelection get() = t("К выбранному", "Go to selection")

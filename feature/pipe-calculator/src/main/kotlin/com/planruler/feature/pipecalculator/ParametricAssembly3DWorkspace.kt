@@ -1,5 +1,19 @@
 ﻿package com.planruler.feature.pipecalculator
 
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Icon
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.Alignment
+import com.planruler.designsystem.component.PlanRulerIconButton
+import com.planruler.designsystem.icon.PlanRulerIcons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -171,49 +185,9 @@ internal fun ParametricAssembly3DCard(
         else -> Vec3(result.input.overallFaceToFaceMm, result.input.targetOffsetMm, 0.0)
     }
 
-    Column(
-        Modifier.fillMaxWidth().testTag(PipeCalculatorTags.Assembly3D),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        ElevatedCard(
-            Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(28.dp),
-            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(
-                        text.workspaceTitle,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Black,
-                    )
-                    Text(
-                        if (installerRequest != null && !showAdvancedControls) {
-                            localizedUi(
-                                language,
-                                "Проверка формы и резов без инженерных координат",
-                                "Shape and cut verification without engineering coordinates",
-                            )
-                        } else text.modeCaption(state.mode),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-
-                if (installerRequest != null && !showAdvancedControls) {
-                    InstallerAutomaticSummary(
-                        state = state,
-                        request = installerRequest,
-                        language = language,
-                    )
-                } else {
-                    ModeSelector(
-                        mode = state.mode,
-                        onMode = viewModel::setMode,
-                        label = text::mode,
-                    )
-
-                    WorkspaceSection(title = text.sectionTitle(state.mode)) {
+    val sharedCamera = rememberSceneCamera3D()
+    var workbench by rememberSaveable { mutableStateOf(false) }
+    val modeControls: @Composable () -> Unit = {
                         when (state.mode) {
                         AssemblyWorkspaceMode3D.VERIFIED -> VerifiedAssemblySummary(
                             result = result,
@@ -280,18 +254,14 @@ internal fun ParametricAssembly3DCard(
                             maxElbowCeiling = engine.limits.maxElbows,
                         )
                         }
-                    }
-                }
-                state.error?.let { InlineWorkspaceMessage(messages.of(it), error = true) }
-                if (state.selfIntersections.isNotEmpty()) {
-                    CollisionWarning(state.selfIntersections, text)
-                }
-            }
-        }
-        val assembly = state.shownAssembly
-        if (assembly != null) {
-            AssemblyStatsSummary(assembly, text)
+    }
+    val viewer: @Composable (ParametricAssembly3D, Boolean) -> Unit = { assembly, bareScene ->
             Assembly3DViewerCard(
+                camera = sharedCamera,
+                bare = bareScene,
+                fullScreen = bareScene,
+                onExitFullScreen = { workbench = false },
+                onRequestFullScreen = { workbench = true },
                 assembly = assembly,
                 mesh = state.mesh,
                 meshBuilding = state.meshBuilding,
@@ -322,6 +292,91 @@ internal fun ParametricAssembly3DCard(
                     }
                 },
             )
+    }
+
+    if (workbench) {
+        Assembly3DWorkbench(
+            title = text.workspaceTitle,
+            language = language,
+            mode = state.mode,
+            onMode = viewModel::setMode,
+            modeLabel = text::mode,
+            sectionTitle = text.sectionTitle(state.mode),
+            busy = state.meshBuilding || state.busy,
+            canUndo = state.editor?.undoStack?.isNotEmpty() == true && state.mode == AssemblyWorkspaceMode3D.MANUAL,
+            canRedo = state.editor?.redoStack?.isNotEmpty() == true && state.mode == AssemblyWorkspaceMode3D.MANUAL,
+            onUndo = viewModel::undo,
+            onRedo = viewModel::redo,
+            onClose = { workbench = false },
+            scene = { state.shownAssembly?.let { viewer(it, true) } },
+            controls = modeControls,
+        )
+    }
+
+    Column(
+        Modifier.fillMaxWidth().testTag(PipeCalculatorTags.Assembly3D),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        ElevatedCard(
+            Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text.workspaceTitle,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Black,
+                    )
+                    Text(
+                        if (installerRequest != null && !showAdvancedControls) {
+                            localizedUi(
+                                language,
+                                "Проверка формы и резов без инженерных координат",
+                                "Shape and cut verification without engineering coordinates",
+                            )
+                        } else text.modeCaption(state.mode),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+
+                Button(
+                    onClick = { workbench = true },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(PlanRulerIcons.Expand, null, Modifier.size(18.dp))
+                    Text(openWorkbenchLabel(language), Modifier.padding(start = 8.dp))
+                }
+
+                if (installerRequest != null && !showAdvancedControls) {
+                    InstallerAutomaticSummary(
+                        state = state,
+                        request = installerRequest,
+                        language = language,
+                    )
+                } else {
+                    ModeSelector(
+                        mode = state.mode,
+                        onMode = viewModel::setMode,
+                        label = text::mode,
+                    )
+
+                    WorkspaceSection(title = text.sectionTitle(state.mode)) {
+                        modeControls()
+                    }
+                }
+                state.error?.let { InlineWorkspaceMessage(messages.of(it), error = true) }
+                if (state.selfIntersections.isNotEmpty()) {
+                    CollisionWarning(state.selfIntersections, text)
+                }
+            }
+        }
+        val assembly = state.shownAssembly
+        if (assembly != null) {
+            AssemblyStatsSummary(assembly, text)
+            viewer(assembly, false)
         }
     }
 }
@@ -1484,5 +1539,105 @@ private class Workspace3DText(private val language: AppLanguage) {
             t("Zwrot z offsetem", "Turn with offset", "Wechsel mit Versatz", "Virage avec décalage", "Svolta con offset", "Поворот со смещением")
         com.planruler.fabrication3d.RouteTopology3D.U_TURN ->
             t("Zawrót", "U-turn", "Kehre", "Demi-tour", "Inversione", "Разворот")
+    }
+}
+
+private fun openWorkbenchLabel(language: AppLanguage) =
+    localizedUi(language, "Открыть 3D-верстак на весь экран", "Open the full-screen 3D workbench")
+
+/**
+ * Full-screen 3D workbench: the scene gets the whole screen, the mode switch sits on top
+ * and the mode's tools live in a collapsible panel at the bottom, so nothing forces the
+ * fitter to scroll between the model and the controls that change it.
+ */
+@Composable
+private fun Assembly3DWorkbench(
+    title: String,
+    language: AppLanguage,
+    mode: AssemblyWorkspaceMode3D,
+    onMode: (AssemblyWorkspaceMode3D) -> Unit,
+    modeLabel: (AssemblyWorkspaceMode3D) -> String,
+    sectionTitle: String,
+    busy: Boolean,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onClose: () -> Unit,
+    scene: @Composable () -> Unit,
+    controls: @Composable () -> Unit,
+) {
+    var panelOpen by rememberSaveable { mutableStateOf(true) }
+    Dialog(
+        onDismissRequest = onClose,
+        properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false),
+    ) {
+        Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+            Column(Modifier.fillMaxSize()) {
+                Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            PlanRulerIconButton(PlanRulerIcons.Back, localizedUi(language, "Закрыть", "Close"), onClose)
+                            Text(
+                                title,
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                            )
+                            if (busy) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
+                            PlanRulerIconButton(
+                                PlanRulerIcons.Undo,
+                                localizedUi(language, "Отменить", "Undo"),
+                                onUndo,
+                                enabled = canUndo,
+                            )
+                            PlanRulerIconButton(
+                                PlanRulerIcons.Redo,
+                                localizedUi(language, "Повторить", "Redo"),
+                                onRedo,
+                                enabled = canRedo,
+                            )
+                        }
+                        ModeSelector(mode = mode, onMode = onMode, label = modeLabel)
+                    }
+                }
+                Box(Modifier.weight(1f).fillMaxWidth()) { scene() }
+                Surface(
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 8.dp,
+                    shape = RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp),
+                ) {
+                    Column(Modifier.fillMaxWidth()) {
+                        Row(
+                            Modifier.fillMaxWidth().clickable { panelOpen = !panelOpen }
+                                .padding(horizontal = 16.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                sectionTitle,
+                                Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Icon(
+                                if (panelOpen) PlanRulerIcons.Down else PlanRulerIcons.Up,
+                                localizedUi(language, "Панель инструментов", "Tool panel"),
+                            )
+                        }
+                        if (panelOpen) {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .heightIn(max = 300.dp)
+                                    .verticalScroll(rememberScrollState())
+                                    .padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) { controls() }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

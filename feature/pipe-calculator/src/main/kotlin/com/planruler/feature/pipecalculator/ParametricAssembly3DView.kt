@@ -171,6 +171,10 @@ internal fun Assembly3DViewerCard(
     camera: SceneCamera3D = rememberSceneCamera3D(),
     fullScreen: Boolean = false,
     onExitFullScreen: () -> Unit = {},
+    /** Scene only, filling its parent: used by the full-screen workbench. */
+    bare: Boolean = false,
+    /** Replaces the viewer-only full-screen dialog, e.g. with the editing workbench. */
+    onRequestFullScreen: (() -> Unit)? = null,
 ) {
     val text = remember(language) { Model3DText(language) }
     val palette = LocalScenePalette.current
@@ -308,20 +312,7 @@ internal fun Assembly3DViewerCard(
     val directValue = liveDirectValue ?: directHandles.joinToString(" · ") { it.valueLabel }
     val canRemoveFromScene = editor?.pathForPart(activeSelection.orEmpty()) != null
 
-    ElevatedCard(
-        Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(text.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text(
-                    text.subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+    val presetRow: @Composable () -> Unit = {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 items(ViewPreset3D.entries) { preset ->
                     FilterChip(
@@ -342,12 +333,12 @@ internal fun Assembly3DViewerCard(
                     )
                 }
             }
-            val sceneDescription = "${text.title}. ${assembly.parts.size} ${text.parts}, " +
-                "${assembly.connections.size} ${text.welds}. ${text.gestureHint}"
+    }
+    val sceneDescription = "${text.title}. ${assembly.parts.size} ${text.parts}, " +
+        "${assembly.connections.size} ${text.welds}. ${text.gestureHint}"
+    val scene: @Composable (Modifier) -> Unit = { sceneModifier ->
             Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(sceneHeight)
+                sceneModifier
                     .background(palette.backdropTop, RoundedCornerShape(20.dp))
                     .onSizeChanged { viewportSize = it },
             ) {
@@ -421,7 +412,9 @@ internal fun Assembly3DViewerCard(
                         if (fullScreen) {
                             PlanRulerIconButton(PlanRulerIcons.Close, text.exitFullScreen, onExitFullScreen)
                         } else {
-                            PlanRulerIconButton(PlanRulerIcons.Expand, text.fullScreen, { showFullScreen = true })
+                            PlanRulerIconButton(PlanRulerIcons.Expand, text.fullScreen, {
+                                onRequestFullScreen?.invoke() ?: run { showFullScreen = true }
+                            })
                         }
                     }
                 }
@@ -517,6 +510,55 @@ internal fun Assembly3DViewerCard(
                     }
                 }
             }
+    }
+
+    if (bare) {
+        // Workbench: the scene is the whole screen, view presets float over it.
+        Box(Modifier.fillMaxSize()) {
+            scene(Modifier.fillMaxSize())
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.align(Alignment.TopStart).padding(8.dp).fillMaxWidth(0.82f),
+            ) {
+                Box(Modifier.padding(horizontal = 6.dp)) { presetRow() }
+            }
+            selectedPart?.let { part ->
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 52.dp)
+                        .testTag(PipeCalculatorTags.Assembly3DSelection),
+                ) {
+                    Text(
+                        "${part.code} · ${text.partKind(part.definition.kind)} · ${partDimensions(part)}",
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = palette.selection,
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(text.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                Text(
+                    text.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            presetRow()
+            scene(Modifier.fillMaxWidth().height(sceneHeight))
             selectedPart?.let { part ->
                 Surface(
                     shape = RoundedCornerShape(18.dp),

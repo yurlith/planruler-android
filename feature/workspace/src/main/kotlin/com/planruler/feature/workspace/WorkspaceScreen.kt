@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -459,7 +460,8 @@ fun WorkspaceScreen(
         },
         bottomBar = {
             Column {
-                FieldSummaryStrip(
+                // Totals only matter once something is measured; an empty strip is noise.
+                if (engine.measurements.any { it.pageIndex == pageIndex }) FieldSummaryStrip(
                     lastValue = fieldSummary.lastMeasurement?.let(viewModel::value).orEmpty(),
                     materialTotal = fieldTotalValue(fieldSummary.totals, text.pieces),
                     materialName = fieldSummary.material,
@@ -752,31 +754,15 @@ fun WorkspaceScreen(
                 Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (tool == WorkspaceTool.NAVIGATE && !focusMode) {
+                val focusTarget = selected
+                if (tool == WorkspaceTool.NAVIGATE && !focusMode && focusTarget != null) {
                     Surface(
                         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
                         shape = MaterialTheme.shapes.medium,
                         shadowElevation = 6.dp,
                         modifier = Modifier.padding(Space.x2),
                     ) {
-                        Row(
-                            Modifier.padding(horizontal = Space.x2),
-                            horizontalArrangement = Arrangement.spacedBy(Space.x1),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            TextButton({
-                                viewport = viewport.copy(zoom = 1.0)
-                                viewModel.updateViewport(viewport)
-                            }) { Text(text.actualSize) }
-                            selected?.let { measurement ->
-                                TextButton({ centerOn(measurement) }) { Text(text.toSelection) }
-                            }
-                            Text(
-                                "${(viewport.zoom * 100).roundToInt()} %",
-                                Modifier.padding(end = Space.x2),
-                                style = MaterialTheme.typography.labelMedium,
-                            )
-                        }
+                        TextButton({ centerOn(focusTarget) }) { Text(text.toSelection) }
                     }
                 }
                 if (selected != null && draft == null && mode == WorkspaceMode.EDIT) {
@@ -811,7 +797,7 @@ fun WorkspaceScreen(
                         )
                     }
                 }
-                if (selected == null && draft == null && mode == WorkspaceMode.EDIT && !focusMode) {
+                if (selected == null && draft == null && mode == WorkspaceMode.EDIT && !focusMode && tool.draws) {
                     ActiveTemplateBar(
                         template = viewModel.activeTemplate,
                         canRepeat = engine.measurements.isNotEmpty(),
@@ -851,6 +837,11 @@ fun WorkspaceScreen(
             if (page != null && canvasSize.width > 0 && !pickingCalibration && !pickingVerification) {
                 ZoomControls(
                     text = text,
+                    zoomPercent = (viewport.zoom * 100).roundToInt(),
+                    onActualSize = {
+                        viewport = viewport.copy(zoom = 1.0)
+                        viewModel.updateViewport(viewport)
+                    },
                     onZoom = { factor ->
                         val center = ScreenPoint(canvasSize.width / 2.0, canvasSize.height / 2.0)
                         viewport = ViewportTransform(
@@ -1204,6 +1195,8 @@ private fun draftHint(draft: Measurement, viewModel: WorkspaceViewModel, text: W
 @Composable
 private fun ZoomControls(
     text: Wt,
+    zoomPercent: Int,
+    onActualSize: () -> Unit,
     onZoom: (Double) -> Unit,
     onFit: () -> Unit,
     modifier: Modifier = Modifier,
@@ -1218,6 +1211,9 @@ private fun ZoomControls(
             PlanRulerIconButton(PlanRulerIcons.Plus, text.zoomIn, { onZoom(1.5) })
             PlanRulerIconButton(PlanRulerIcons.Minus, text.zoomOut, { onZoom(1.0 / 1.5) })
             PlanRulerIconButton(PlanRulerIcons.FitPage, text.fitPage, onFit)
+            TextButton(onActualSize, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                Text("$zoomPercent%", style = MaterialTheme.typography.labelSmall, maxLines = 1)
+            }
         }
     }
 }
