@@ -117,7 +117,8 @@ class WorkspaceViewModel(
                     createdAtEpochMs = now,
                     modifiedAtEpochMs = now,
                     documentUri = uri,
-                    mimeType = mime.ifBlank { opened.value.mimeType },
+                    // The gateway sniffs the real type; the caller's hint is only a fallback.
+                    mimeType = opened.value.mimeType.takeUnless { it.isBlank() || it.endsWith("/*") } ?: mime,
                     pages = opened.value.pages,
                     displayUnit = settings.defaultUnit,
                     calibration = blankCalibration,
@@ -259,11 +260,6 @@ class WorkspaceViewModel(
         )
         persistCriticalChange()
         return true
-    }
-
-    fun changePage(delta: Int) {
-        val project = ui.value.project ?: return
-        goToPage(project.selectedPage + delta)
     }
 
     fun goToPage(index: Int) {
@@ -448,7 +444,7 @@ class WorkspaceViewModel(
                 is DocumentResult.Ok -> mutableUi.value = ui.value.copy(
                     pendingRevision = PendingPageRevision(
                         documentUri = uri,
-                        mimeType = mimeType.ifBlank { sourceDocument.mimeType },
+                        mimeType = sourceDocument.mimeType.takeUnless { it.isBlank() || it.endsWith("/*") } ?: mimeType,
                         document = sourceDocument,
                         sourcePageIndex = 0,
                         renderedPage = rendered.value,

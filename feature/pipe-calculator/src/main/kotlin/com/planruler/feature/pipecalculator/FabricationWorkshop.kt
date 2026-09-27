@@ -1,15 +1,8 @@
 ﻿package com.planruler.feature.pipecalculator
 
 import android.graphics.Paint
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -52,17 +45,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -74,7 +61,6 @@ import com.planruler.designsystem.localization.localizedUi
 import com.planruler.designsystem.localization.UiTextKey
 import com.planruler.designsystem.localization.uiText
 import com.planruler.designsystem.theme.LocalScenePalette
-import com.planruler.designsystem.theme.PlanRulerScenePalette
 import com.planruler.model.AppLanguage
 import com.planruler.model.AppSettings
 import com.planruler.model.InstallationChainRecipe
@@ -86,20 +72,13 @@ import com.planruler.model.InstallationTaskType
 import com.planruler.model.InstallationWorkspaceSection
 import com.planruler.model.ProjectId
 import com.planruler.project.api.ProjectRepository
-import com.planruler.pipecalculator.FabricationElement
-import com.planruler.pipecalculator.FabricationElementKind
-import com.planruler.pipecalculator.FabricationPointMm
 import com.planruler.fabrication3d.Fabrication3DEngine
 import com.planruler.pipecalculator.FlangedOffsetAssemblyInput
 import com.planruler.pipecalculator.FlangedOffsetAssemblyResult
 import com.planruler.pipecalculator.PIPE_INSTALLATION_SERIES
 import com.planruler.pipecalculator.calculateFlangedOffsetAssembly
 import java.util.Locale
-import kotlin.math.PI
-import kotlin.math.atan2
-import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sin
 
 
@@ -155,6 +134,7 @@ internal fun FabricationWorkshop(
             onProject = jobsViewModel::selectProject,
             onJob = jobsViewModel::selectJob,
             onCreate = jobsViewModel::createJob,
+            onCreateProject = jobsViewModel::createWorkshopProject,
             onRename = jobsViewModel::renameJob,
             onDuplicate = jobsViewModel::duplicateJob,
             onDelete = jobsViewModel::deleteJob,
@@ -390,6 +370,7 @@ private fun InstallationJobManager(
     onProject: (ProjectId) -> Unit,
     onJob: (InstallationJobId) -> Unit,
     onCreate: (String) -> Unit,
+    onCreateProject: (String, String) -> Unit,
     onRename: (InstallationJobId, String) -> Unit,
     onDuplicate: (InstallationJobId) -> Unit,
     onDelete: (InstallationJobId) -> Unit,
@@ -427,9 +408,20 @@ private fun InstallationJobManager(
 
             if (state.projects.isEmpty()) {
                 Text(
-                    t("Сначала создайте проект или импортируйте план.", "Create a project or import a plan first."),
-                    color = MaterialTheme.colorScheme.error,
+                    t(
+                        "Проектов пока нет. Создайте проект мастерской — пустой лист, в котором сохраняются узлы и 3D.",
+                        "No projects yet. Create a workshop project: a blank sheet that stores jobs and 3D models.",
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
                 )
+                Button(
+                    onClick = {
+                        onCreateProject(
+                            t("Мастерская", "Workshop"),
+                            t("Монтажный узел", "Installation job") + " 1",
+                        )
+                    },
+                ) { Text(t("Создать проект мастерской", "Create workshop project")) }
             } else {
                 Text(t("Проект", "Project"), style = MaterialTheme.typography.labelLarge)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -686,321 +678,6 @@ private fun WorkshopNumericField(
 }
 
 @Composable
-private fun AssemblyBlueprint(result: FlangedOffsetAssemblyResult, text: WorkshopText) {
-    val palette = LocalScenePalette.current
-    val transition = rememberInfiniteTransition(label = "fabrication-cut-pulse")
-    val cutPulse by transition.animateFloat(
-        initialValue = 0.58f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(850), repeatMode = RepeatMode.Reverse),
-        label = "fabrication-cut-alpha",
-    )
-    OutlinedCard(
-        Modifier
-            .fillMaxWidth()
-            .testTag(PipeCalculatorTags.OffsetDiagram)
-            .semantics { contentDescription = text.blueprintDescription },
-        shape = RoundedCornerShape(24.dp),
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text(text.assemblyDrawing, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    Text(
-                        "DN ${result.pipe.dn} · PN ${result.flange.pn} · Ø ${technical(result.pipe.outsideDiameterMm)} × ${technical(result.pipe.wallThicknessMm)} mm",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                Surface(shape = RoundedCornerShape(12.dp), color = palette.blueprintCut.copy(alpha = 0.13f)) {
-                    Text(
-                        "P2 · ${technical(result.diagonalPipeCutMm)} mm",
-                        Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                        color = palette.blueprintCut,
-                        fontWeight = FontWeight.Black,
-                    )
-                }
-            }
-            Text(
-                "${text.cutPipe}: C = ${technical(result.diagonalPipeCutMm)} mm",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Black,
-                color = palette.blueprintCut,
-            )
-            Canvas(
-                Modifier
-                    .fillMaxWidth()
-                    .height(360.dp)
-                    .background(palette.blueprintBackground, RoundedCornerShape(18.dp))
-                    .padding(4.dp),
-            ) {
-                drawBlueprint(result, cutPulse, palette)
-            }
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                item { BlueprintLegend(palette.blueprintPipe, text.pipe) }
-                item { BlueprintLegend(palette.blueprintFitting, text.elbows) }
-                item { BlueprintLegend(palette.blueprintFlange, text.flanges) }
-                item { BlueprintLegend(palette.blueprintCut, text.cutMarks) }
-            }
-            Text(text.pointLegend, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-private fun DrawScope.drawBlueprint(
-    result: FlangedOffsetAssemblyResult,
-    cutPulse: Float,
-    palette: PlanRulerScenePalette,
-) {
-    var gx = 0f
-    while (gx <= size.width) {
-        drawLine(palette.blueprintGrid, Offset(gx, 0f), Offset(gx, size.height), 1f)
-        gx += 24f
-    }
-    var gy = 0f
-    while (gy <= size.height) {
-        drawLine(palette.blueprintGrid, Offset(0f, gy), Offset(size.width, gy), 1f)
-        gy += 24f
-    }
-
-    val flangeRadiusMm = result.flange.outsideDiameterMm / 2.0
-    val logicalHeight = result.input.targetOffsetMm + result.flange.outsideDiameterMm
-    val usableWidth = (size.width - 88f).coerceAtLeast(1f)
-    val usableHeight = (size.height - 92f).coerceAtLeast(1f)
-    val scale = min(
-        usableWidth / result.input.overallFaceToFaceMm.toFloat(),
-        usableHeight / logicalHeight.toFloat(),
-    )
-    val contentWidth = result.input.overallFaceToFaceMm.toFloat() * scale
-    val contentHeight = logicalHeight.toFloat() * scale
-    val originX = (size.width - contentWidth) / 2f
-    val originY = (size.height - contentHeight) / 2f
-    fun map(point: FabricationPointMm) = Offset(
-        originX + point.x.toFloat() * scale,
-        originY + (result.input.targetOffsetMm + flangeRadiusMm - point.y).toFloat() * scale,
-    )
-
-    val pipeWidth = (result.pipe.outsideDiameterMm.toFloat() * scale).coerceIn(10f, 34f)
-    val boreRatio = ((result.pipe.outsideDiameterMm - 2.0 * result.pipe.wallThicknessMm) /
-        result.pipe.outsideDiameterMm).toFloat()
-    val boreWidth = (pipeWidth * boreRatio).coerceAtMost(pipeWidth - 3f)
-    result.elements.filter { it.kind == FabricationElementKind.PIPE }.forEach { element ->
-        val path = Path().apply { moveTo(map(element.start).x, map(element.start).y); lineTo(map(element.end).x, map(element.end).y) }
-        val color = if (element.code == "P2") palette.blueprintCut.copy(alpha = cutPulse) else palette.blueprintPipe
-        drawPath(path, Color.Black.copy(alpha = 0.55f), style = Stroke(pipeWidth + 5f, cap = StrokeCap.Butt))
-        drawPath(path, color, style = Stroke(pipeWidth, cap = StrokeCap.Butt))
-        drawPath(path, palette.blueprintBackground, style = Stroke(boreWidth, cap = StrokeCap.Butt))
-    }
-    result.elements.filter { it.kind == FabricationElementKind.ELBOW }.forEach { element ->
-        val control = requireNotNull(element.control)
-        val path = Path().apply {
-            moveTo(map(element.start).x, map(element.start).y)
-            quadraticTo(map(control).x, map(control).y, map(element.end).x, map(element.end).y)
-        }
-        drawPath(path, Color.Black.copy(alpha = 0.55f), style = Stroke(pipeWidth + 5f, cap = StrokeCap.Butt))
-        drawPath(path, palette.blueprintFitting, style = Stroke(pipeWidth, cap = StrokeCap.Butt))
-        drawPath(path, palette.blueprintBackground, style = Stroke(boreWidth, cap = StrokeCap.Butt))
-    }
-    drawWorkshopFlange(result, result.elements.first { it.code == "F1" }, true, scale, ::map, pipeWidth, palette)
-    drawWorkshopFlange(result, result.elements.first { it.code == "F2" }, false, scale, ::map, pipeWidth, palette)
-
-    val centerline = Path()
-    result.elements.filter { it.kind != FabricationElementKind.WELD_GAP }.forEachIndexed { index, element ->
-        val start = map(element.start)
-        if (index == 0) centerline.moveTo(start.x, start.y) else centerline.lineTo(start.x, start.y)
-        element.control?.let { control ->
-            val end = map(element.end)
-            centerline.quadraticTo(map(control).x, map(control).y, end.x, end.y)
-        } ?: centerline.lineTo(map(element.end).x, map(element.end).y)
-    }
-    drawPath(
-        centerline,
-        palette.blueprintText.copy(alpha = 0.72f),
-        style = Stroke(1.4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(9f, 7f), 0f)),
-    )
-
-    result.elements.filter { it.kind == FabricationElementKind.WELD_GAP }.forEach { gap ->
-        val a = map(gap.start)
-        val b = map(gap.end)
-        val vx = b.x - a.x
-        val vy = b.y - a.y
-        val length = kotlin.math.sqrt(vx * vx + vy * vy).coerceAtLeast(0.001f)
-        val normal = Offset(-vy / length, vx / length) * (pipeWidth * 0.7f)
-        val mid = (a + b) * 0.5f
-        drawLine(palette.blueprintText, mid - normal, mid + normal, 2.2f)
-    }
-    result.elements.filter { it.kind == FabricationElementKind.PIPE }.forEach { pipe ->
-        listOf(pipe.start, pipe.end).forEach { point ->
-            val p = map(point)
-            val other = if (point == pipe.start) map(pipe.end) else map(pipe.start)
-            val vx = other.x - p.x
-            val vy = other.y - p.y
-            val length = kotlin.math.sqrt(vx * vx + vy * vy).coerceAtLeast(0.001f)
-            val normal = Offset(-vy / length, vx / length) * (pipeWidth * 0.82f)
-            drawLine(palette.blueprintCut, p - normal, p + normal, 3.2f)
-        }
-    }
-
-    val start = map(result.startFace)
-    val end = map(result.endFace)
-    val e1Corner = requireNotNull(result.elements.single { it.code == "E1" }.control)
-    val e2Corner = requireNotNull(result.elements.single { it.code == "E2" }.control)
-    val corner1 = map(e1Corner)
-    val corner2 = map(e2Corner)
-
-    // Classical two-tier chain: the stations a fitter marks out first, then the overall
-    // size below them. Without the inner tier the drawing only stated X and H, which is
-    // not enough to set the part out.
-    val stationDimensionY = size.height - 54f
-    val bottomDimensionY = size.height - 26f
-    val stations = listOf(
-        Triple(start.x, corner1.x, e1Corner.x - result.startFace.x),
-        Triple(corner1.x, corner2.x, e2Corner.x - e1Corner.x),
-        Triple(corner2.x, end.x, result.endFace.x - e2Corner.x),
-    )
-    stations.forEach { (fromX, toX, _) ->
-        blueprintDimension(
-            Offset(fromX, stationDimensionY),
-            Offset(toX, stationDimensionY),
-            palette.blueprintDimension,
-        )
-    }
-    listOf(start.x to start.y, corner1.x to corner1.y, corner2.x to corner2.y, end.x to end.y)
-        .forEach { (x, y) ->
-            drawLine(
-                palette.blueprintDimension.copy(alpha = 0.5f),
-                Offset(x, y),
-                Offset(x, stationDimensionY + 6f),
-                1.2f,
-            )
-        }
-
-    blueprintDimension(Offset(start.x, bottomDimensionY), Offset(end.x, bottomDimensionY), palette.blueprintDimension)
-    drawLine(palette.blueprintDimension.copy(alpha = 0.65f), start, Offset(start.x, bottomDimensionY + 6f), 1.2f)
-    drawLine(palette.blueprintDimension.copy(alpha = 0.65f), end, Offset(end.x, bottomDimensionY + 6f), 1.2f)
-    val heightDimensionX = 24f
-    blueprintDimension(Offset(heightDimensionX, start.y), Offset(heightDimensionX, end.y), palette.blueprintDimension)
-    drawLine(palette.blueprintDimension.copy(alpha = 0.65f), Offset(heightDimensionX - 6f, start.y), start, 1.2f)
-    drawLine(palette.blueprintDimension.copy(alpha = 0.65f), Offset(heightDimensionX - 6f, end.y), end, 1.2f)
-
-    val p2 = result.elements.single { it.code == "P2" }
-    val p2Start = map(p2.start)
-    val p2End = map(p2.end)
-    val p2Mid = (p2Start + p2End) * 0.5f
-    val angleOnCanvas = Math.toDegrees(atan2((p2End.y - p2Start.y).toDouble(), (p2End.x - p2Start.x).toDouble())).toFloat()
-    val e1 = result.elements.single { it.code == "E1" }
-    val center = map(requireNotNull(e1.control))
-    drawArc(
-        palette.blueprintDimension,
-        startAngle = -result.input.angleDeg.toFloat(),
-        sweepAngle = result.input.angleDeg.toFloat(),
-        useCenter = false,
-        topLeft = Offset(center.x - 32f, center.y - 32f),
-        size = Size(64f, 64f),
-        style = Stroke(2f),
-    )
-
-    val paint = blueprintPaint(palette.blueprintText, 10.sp.toPx(), Paint.Align.CENTER)
-    val highlightPaint = blueprintPaint(palette.blueprintCut, 11.sp.toPx(), Paint.Align.CENTER, bold = true)
-    val dimensionPaint = blueprintPaint(palette.blueprintDimension, 10.sp.toPx(), Paint.Align.CENTER, bold = true)
-    drawIntoCanvas { canvas ->
-        canvas.nativeCanvas.drawText(
-            "X = ${technical(result.input.overallFaceToFaceMm)} mm",
-            (start.x + end.x) / 2f,
-            bottomDimensionY - 8f,
-            dimensionPaint,
-        )
-        canvas.nativeCanvas.save()
-        canvas.nativeCanvas.rotate(-90f, heightDimensionX - 7f, (start.y + end.y) / 2f)
-        canvas.nativeCanvas.drawText(
-            "H = ${technical(result.input.targetOffsetMm)} mm",
-            heightDimensionX - 7f,
-            (start.y + end.y) / 2f - 7f,
-            dimensionPaint,
-        )
-        canvas.nativeCanvas.restore()
-        canvas.nativeCanvas.save()
-        canvas.nativeCanvas.rotate(angleOnCanvas, p2Mid.x, p2Mid.y)
-        canvas.nativeCanvas.drawText(
-            "P2 · C ${technical(result.diagonalPipeCutMm)}",
-            p2Mid.x,
-            p2Mid.y - pipeWidth,
-            highlightPaint,
-        )
-        canvas.nativeCanvas.restore()
-        canvas.nativeCanvas.drawText(
-            "α ${technical(result.input.angleDeg)}° · A ${technical(result.elbowTakeoutMm)} · " +
-                "R ${technical(result.elbow.centerlineRadiusMm)}",
-            center.x + 64f,
-            center.y + 39f,
-            paint,
-        )
-        // Station chain: the three set-out lengths that add up to X.
-        stations.forEach { (fromX, toX, valueMm) ->
-            canvas.nativeCanvas.drawText(
-                technical(valueMm),
-                (fromX + toX) / 2f,
-                stationDimensionY - 8f,
-                dimensionPaint,
-            )
-        }
-        result.elements.filter { it.kind == FabricationElementKind.PIPE && it.code != "P2" }.forEach { element ->
-            val mid = (map(element.start) + map(element.end)) * 0.5f
-            canvas.nativeCanvas.drawText(
-                "${element.code} · ${technical(requireNotNull(element.cutLengthMm))}",
-                mid.x,
-                mid.y - pipeWidth,
-                paint,
-            )
-        }
-        canvas.nativeCanvas.drawText("F1", start.x + 4f, start.y - flangeRadiusMm.toFloat() * scale - 8f, paint)
-        canvas.nativeCanvas.drawText("F2", end.x - 4f, end.y - flangeRadiusMm.toFloat() * scale - 8f, paint)
-    }
-}
-
-private fun DrawScope.drawWorkshopFlange(
-    result: FlangedOffsetAssemblyResult,
-    element: FabricationElement,
-    isStart: Boolean,
-    scale: Float,
-    map: (FabricationPointMm) -> Offset,
-    pipeWidth: Float,
-    palette: PlanRulerScenePalette,
-) {
-    val face = map(if (isStart) element.start else element.end)
-    val weld = map(if (isStart) element.end else element.start)
-    val direction = if (isStart) 1f else -1f
-    val discEndX = face.x + direction * result.flange.thicknessMm.toFloat() * scale
-    val discLeft = min(face.x, discEndX)
-    val outerRadius = (result.flange.outsideDiameterMm.toFloat() * scale / 2f).coerceAtLeast(pipeWidth * 0.9f)
-    val boltRadius = result.flange.boltCircleDiameterMm.toFloat() * scale / 2f
-    val holeRadius = (result.flange.boltHoleDiameterMm.toFloat() * scale / 2f).coerceAtLeast(2f)
-    val discWidth = kotlin.math.abs(discEndX - face.x).coerceAtLeast(4f)
-    drawRect(palette.blueprintFlange, Offset(discLeft, face.y - outerRadius), Size(discWidth, outerRadius * 2f))
-    drawRect(Color.Black.copy(alpha = 0.5f), Offset(discLeft, face.y - outerRadius), Size(discWidth, outerRadius * 2f), style = Stroke(2f))
-    val hub = Path().apply {
-        moveTo(discEndX, face.y - pipeWidth * 0.82f)
-        lineTo(weld.x, weld.y - pipeWidth / 2f)
-        lineTo(weld.x, weld.y + pipeWidth / 2f)
-        lineTo(discEndX, face.y + pipeWidth * 0.82f)
-        close()
-    }
-    drawPath(hub, palette.blueprintFlange)
-    drawPath(hub, Color.Black.copy(alpha = 0.5f), style = Stroke(2f))
-    drawCircle(palette.blueprintBackground, holeRadius, Offset((face.x + discEndX) / 2f, face.y - boltRadius))
-    drawCircle(palette.blueprintBackground, holeRadius, Offset((face.x + discEndX) / 2f, face.y + boltRadius))
-    drawLine(palette.blueprintDimension, Offset(face.x, face.y - outerRadius), Offset(face.x, face.y + outerRadius), 2.6f)
-}
-
-@Composable
-private fun BlueprintLegend(color: Color, label: String) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        Spacer(Modifier.size(10.dp).background(color, RoundedCornerShape(3.dp)))
-        Text(label, style = MaterialTheme.typography.labelSmall)
-    }
-}
-
-@Composable
 private fun CutListPanel(result: FlangedOffsetAssemblyResult, text: WorkshopText) {
     val palette = LocalScenePalette.current
     ElevatedCard(
@@ -1037,53 +714,6 @@ private fun CutListPanel(result: FlangedOffsetAssemblyResult, text: WorkshopText
             }
             WorkshopMetric(text.betweenWeldFaces, "F = ${technical(result.diagonalFaceToFaceMm)} mm")
             WorkshopMetric(text.insertCutLength, "C = ${technical(result.diagonalPipeCutMm)} mm")
-        }
-    }
-}
-
-@Composable
-private fun FlangeFrontView(
-    result: FlangedOffsetAssemblyResult,
-    text: WorkshopText,
-    modifier: Modifier = Modifier,
-) {
-    val palette = LocalScenePalette.current
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val outlineColor = MaterialTheme.colorScheme.outline
-    val outlineVariantColor = MaterialTheme.colorScheme.outlineVariant
-    OutlinedCard(modifier.fillMaxWidth().testTag(PipeCalculatorTags.WorkshopFlange), shape = RoundedCornerShape(24.dp)) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(text.flangePattern, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "DN ${result.flange.dn} · PN ${result.flange.pn} · ${result.flange.type}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Canvas(Modifier.fillMaxWidth().height(190.dp)) {
-                val center = Offset(size.width / 2f, size.height / 2f)
-                val radius = min(size.width, size.height) * 0.39f
-                val boltRadius = radius * (result.flange.boltCircleDiameterMm / result.flange.outsideDiameterMm).toFloat()
-                val holeRadius = radius * (result.flange.boltHoleDiameterMm / result.flange.outsideDiameterMm).toFloat()
-                val boreRadius = radius * (result.pipe.outsideDiameterMm / result.flange.outsideDiameterMm).toFloat() * 0.9f
-                drawCircle(palette.blueprintFlange.copy(alpha = 0.28f), radius, center)
-                drawCircle(palette.blueprintFlange, radius, center, style = Stroke(3f))
-                drawCircle(surfaceColor, boreRadius, center)
-                drawCircle(outlineColor, boreRadius, center, style = Stroke(2f))
-                drawCircle(outlineVariantColor, boltRadius, center, style = Stroke(1.5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 5f))))
-                repeat(result.flange.boltHoleCount) { index ->
-                    val radians = 2.0 * PI * index / result.flange.boltHoleCount - PI / 2.0
-                    val hole = Offset(
-                        center.x + cos(radians).toFloat() * boltRadius,
-                        center.y + sin(radians).toFloat() * boltRadius,
-                    )
-                    drawCircle(surfaceColor, holeRadius.coerceAtLeast(3.5f), hole)
-                    drawCircle(palette.blueprintFlange, holeRadius.coerceAtLeast(3.5f), hole, style = Stroke(1.8f))
-                }
-            }
-            WorkshopMetric("D / k", "${technical(result.flange.outsideDiameterMm)} / ${technical(result.flange.boltCircleDiameterMm)} mm")
-            WorkshopMetric(text.boltHoles, "${result.flange.boltHoleCount} × Ø ${technical(result.flange.boltHoleDiameterMm)} mm")
-            WorkshopMetric(text.flangeHeight, "h = ${technical(result.flange.faceToWeldMm)} mm")
-            WorkshopMetric(text.flangeThickness, "b = ${technical(result.flange.thicknessMm)} mm")
         }
     }
 }
@@ -1213,15 +843,6 @@ private fun blueprintPaint(color: Color, sizePx: Float, align: Paint.Align, bold
 
 private operator fun Offset.times(scale: Float) = Offset(x * scale, y * scale)
 
-private fun workshopNumber(value: String): Double =
-    value.trim().replace(',', '.').toDoubleOrNull() ?: throw IllegalArgumentException("Invalid number")
-
-private fun workshopWholeNumber(value: String): Int {
-    val number = workshopNumber(value)
-    if (number % 1.0 != 0.0) throw IllegalArgumentException("Quantity must be a whole number")
-    return number.toInt()
-}
-
 private fun technical(value: Double, decimals: Int = 1): String = String.format(Locale.US, "%.${decimals}f", value)
 
 private class WorkshopText(private val language: AppLanguage) {
@@ -1243,24 +864,13 @@ private class WorkshopText(private val language: AppLanguage) {
     val sawKerf get() = t("Ширина реза пилы, mm", "Saw kerf, mm")
     val liveCalculation get() = t("Схема и длины обновляются сразу при каждом изменении.", "The drawing and lengths update immediately after every change.")
     val refreshDrawing get() = t("Обновить чертёж и раскрой", "Refresh drawing and cut plan")
-    val assemblyDrawing get() = t("Рабочий чертёж узла", "Assembly working drawing")
-    val blueprintDescription get() = t("Размерная схема фланцевого смещения с тремя трубными заготовками.", "Dimensioned flanged-offset drawing with three pipe cuts.")
-    val cutPipe get() = t("ОТРЕЗАТЬ ТРУБУ", "CUT PIPE")
     val pipe get() = t("Труба", "Pipe")
     val elbows get() = t("Отводы", "Elbows")
     val flanges get() = t("Фланцы", "Flanges")
-    val cutMarks get() = t("Метки реза", "Cut marks")
-    val pointLegend get() = t(
-        "1 — вход отвода 1; Т1 — его сварной торец; 2–3 — труба C для резки; Т2 — сварной торец отвода 2; 4 — конец отвода 2.",
-        "1 — elbow 1 inlet; F1 — its weld face; 2–3 — pipe C to cut; F2 — elbow 2 weld face; 4 — elbow 2 outlet.",
-    )
     val cutList get() = t("Ведомость резов", "Pipe cut list")
     val cutListHint get() = t("P1 и P3 — прямые участки у фланцев; P2 — диагональная вставка между отводами.", "P1 and P3 are flange tails; P2 is the diagonal insert between elbows.")
     val betweenWeldFaces get() = t("Между сварными торцами F", "Between weld faces F")
     val insertCutLength get() = t("Длина вставки C", "Insert cut length C")
-    val flangePattern get() = t("Фланец и болтовой круг", "Flange and bolt pattern")
-    val boltHoles get() = t("Отверстия", "Bolt holes")
-    val flangeHeight get() = t("Монтажная высота фланца", "Flange mounting height")
     val flangeThickness get() = t("Толщина диска", "Flange thickness")
     val stockPlan get() = t("График раскроя хлыстов", "Stock cutting chart")
     val firstFitPlan get() = t("практический раскрой", "practical first-fit plan")

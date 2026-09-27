@@ -37,6 +37,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
 import androidx.compose.ui.input.pointer.PointerEvent
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.input.pointer.positionChanged
@@ -135,7 +136,9 @@ fun Modifier.canvasGestures(
 
         if (resolved == null) {
             onLongPress(position)
-            consumeRest()
+            // A finger that rested a moment before the second one landed is still a pinch:
+            // hand the stream to the transform loop instead of swallowing the zoom.
+            consumeRest()?.let { firstEvent -> transformLoop(firstEvent, onTransform) }
             return@awaitEachGesture
         }
 
@@ -200,12 +203,30 @@ private suspend fun AwaitPointerEventScope.transformLoop(
     }
 }
 
-private suspend fun AwaitPointerEventScope.consumeRest() {
-    var finished = false
-    while (!finished) {
+/** Swallows the rest of a long press; returns the event where a second finger joined, if any. */
+private suspend fun AwaitPointerEventScope.consumeRest(): PointerEvent? {
+    while (true) {
         val event = awaitPointerEvent()
+        if (event.changes.count { it.pressed } > 1) return event
         event.changes.forEach { it.consume() }
-        if (event.changes.none { it.pressed }) finished = true
+        if (event.changes.none { it.pressed }) return null
+    }
+}
+
+/** Mouse wheel and touchpad scrolling zoom around the pointer, as in any drawing viewer. */
+fun Modifier.wheelZoom(key: Any?, onZoom: (Offset, Float) -> Unit): Modifier = this.pointerInput(key) {
+    awaitPointerEventScope {
+        while (true) {
+            val event = awaitPointerEvent()
+            if (event.type == PointerEventType.Scroll) {
+                val change = event.changes.firstOrNull() ?: continue
+                val delta = change.scrollDelta.y
+                if (delta != 0f) {
+                    onZoom(change.position, if (delta < 0f) 1.15f else 1f / 1.15f)
+                    change.consume()
+                }
+            }
+        }
     }
 }
 
@@ -313,6 +334,18 @@ fun PlanCanvas(
         )
     }
 
+    fun transformBy(centroid: Offset, pan: Offset, zoom: Float) {
+        if (size.width <= 0) return
+        val zoomed = liveTransform().zoomAt(
+            zoom.toDouble(),
+            ScreenPoint(centroid.x.toDouble(), centroid.y.toDouble()),
+        )
+        val next = ViewportTransform(size.width.toDouble(), size.height.toDouble(), zoomed)
+            .panBy(pan.x.toDouble(), pan.y.toDouble())
+        gestureViewport.value = next
+        onViewport(next)
+    }
+
     Box(modifier.fillMaxSize().background(colors.backdrop)) {
         Canvas(
             Modifier
@@ -320,6 +353,9 @@ fun PlanCanvas(
                 .testTag(PlanRulerTestTags.WorkspaceCanvas)
                 .semantics { contentDescription = canvasDescription }
                 .onSizeChanged { size = it; onSize(it) }
+                .wheelZoom(listOf(page.documentId, page.pageIndex)) { position, factor ->
+                    transformBy(position, Offset.Zero, factor)
+                }
                 .canvasGestures(
                     // Viewport, size and selection deliberately stay out of this key.
                     // Selecting a ruler at drag start must not cancel the same pointer
@@ -334,20 +370,7 @@ fun PlanCanvas(
                     onDrag = { offset -> onDrag(toDocument(offset)) },
                     onDragEnd = onDragEnd,
                     onDragCancel = onDragCancel,
-                    onTransform = { centroid, pan, zoom ->
-                        if (size.width > 0) {
-                            val current = liveTransform()
-                            val zoomed = current.zoomAt(
-                                zoom.toDouble(),
-                                ScreenPoint(centroid.x.toDouble(), centroid.y.toDouble()),
-                            )
-                            val next =
-                                ViewportTransform(size.width.toDouble(), size.height.toDouble(), zoomed)
-                                    .panBy(pan.x.toDouble(), pan.y.toDouble())
-                            gestureViewport.value = next
-                            onViewport(next)
-                        }
-                    },
+                    onTransform = { centroid, pan, zoom -> transformBy(centroid, pan, zoom) },
                     onPan = { pan ->
                         if (size.width > 0) {
                             val next = liveTransform().panBy(pan.x.toDouble(), pan.y.toDouble())

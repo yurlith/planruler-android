@@ -310,7 +310,6 @@ class St(private val currentLanguage: AppLanguage) {
     val restorePasswordBody get() = t("Данные из архива будут объединены с локальными данными. Введите пароль, заданный при создании backup.", "Backup data will be merged with local data. Enter the password used when the backup was created.")
     val backupDocumentWarning get() = t("Backup содержит проекты, измерения, CRM и корзину. Исходные PDF/изображения по внешним URI нужно хранить отдельно.", "The backup contains projects, measurements, CRM, and trash. Source PDFs/images referenced by external URI must be kept separately.")
     val continueLabel get() = t("Продолжить", "Continue")
-    val repeatMismatch get() = t("Пароли должны совпадать", "Passwords must match")
     val cancel get() = t("Отмена", "Cancel")
     val defaultUnit get() = t("Единицы по умолчанию", "Default units")
     val decimals get() = t("Знаков после запятой", "Decimal places")

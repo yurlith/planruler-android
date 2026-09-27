@@ -3,7 +3,6 @@ package com.planruler.designsystem.layout
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -56,18 +55,6 @@ data class PlanRulerLayout(
         availableWidth >= 600.dp -> PanelStyle.SIDE_SHEET
         else -> PanelStyle.MODAL_SHEET
     }
-}
-
-val LocalPlanRulerLayout = staticCompositionLocalOf {
-    PlanRulerLayout(
-        width = WidthClass.COMPACT,
-        height = HeightClass.MEDIUM,
-        widthDp = 411.dp,
-        heightDp = 891.dp,
-        handed = Handedness.RIGHT,
-        profile = TouchProfile.FINGER,
-        focusMode = false,
-    )
 }
 
 @Composable

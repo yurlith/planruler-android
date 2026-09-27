@@ -1,5 +1,6 @@
 package com.planruler.feature.pipecalculator
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -53,17 +54,15 @@ import com.planruler.pipecalculator.HydraulicInput
 import com.planruler.pipecalculator.HydraulicResult
 import com.planruler.pipecalculator.MANUAL_INPUT_SOURCE
 import com.planruler.pipecalculator.PIPE_INSTALLATION_SERIES
+import com.planruler.pipecalculator.PIPE_REFERENCE_TABLES
+import com.planruler.pipecalculator.PipeTable
+import com.planruler.pipecalculator.PipeTableRow
+import com.planruler.pipecalculator.pipeTableById
 import com.planruler.pipecalculator.PipeDimensions
-import com.planruler.pipecalculator.TwoElbowAssemblyInput
-import com.planruler.pipecalculator.TwoElbowAssemblyResult
 import com.planruler.pipecalculator.calculateExpansionVessel
 import com.planruler.pipecalculator.calculateHydraulics
-import com.planruler.pipecalculator.calculateTwoElbowAssembly
 import com.planruler.pipecalculator.dowfrostAt
 import com.planruler.pipecalculator.manualFluid
-import com.planruler.pipecalculator.straightSpoolCutLengthMm
-import com.planruler.pipecalculator.theoreticalPipeMassKg
-import com.planruler.pipecalculator.trueLength3dMm
 import com.planruler.pipecalculator.waterAt
 import java.util.Locale
 
@@ -91,7 +90,6 @@ object PipeCalculatorTags {
     const val InstallerVertical = "pipe_installer_vertical"
     const val InstallerEndDirection = "pipe_installer_end_direction"
     const val CalculateOffsetAssembly = "pipe_calculate_offset_assembly"
-    const val OffsetDiagram = "pipe_offset_diagram"
     const val Assembly3D = "pipe_assembly_3d"
     const val Assembly3DCanvas = "pipe_assembly_3d_canvas"
     const val AssemblyDrawing = "pipe_assembly_drawing"
@@ -170,7 +168,6 @@ object PipeCalculatorTags {
     const val Assembly3DReducerSmallDn = "pipe_assembly_3d_reducer_small_dn"
     const val Assembly3DBranch = "pipe_assembly_3d_branch"
     const val OffsetAssemblyResults = "pipe_offset_assembly_results"
-    const val WorkshopFlange = "pipe_workshop_flange"
     const val WorkshopStockPlan = "pipe_workshop_stock_plan"
 }
 
@@ -178,7 +175,9 @@ internal enum class CalculatorTool { HYDRAULICS, HEATING, INSTALLATION, EXPANSIO
 
 private enum class FluidMode { WATER, DOWFROST, MANUAL }
 
-private enum class CatalogSection { PIPES, ELBOWS, TEES, REDUCERS, FLANGES }
+private enum class CatalogSection { PIPE_TABLES, PIPES, ELBOWS, TEES, REDUCERS, FLANGES }
+
+private enum class PipeInputMode { SERIES, TABLE, MANUAL }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -194,6 +193,7 @@ fun PipeCalculatorScreen(
     val text = CalculatorText(language)
     var selected by rememberSaveable { mutableStateOf<CalculatorTool?>(null) }
     var sharedCircuit by remember { mutableStateOf<HydraulicInput?>(null) }
+    BackHandler(enabled = selected != null) { selected = null }
     Column(modifier.fillMaxSize().testTag(PipeCalculatorTags.Root)) {
         val active = selected
         if (active == null) {
@@ -246,8 +246,12 @@ private fun HydraulicsPage(text: CalculatorText, onCriticalCircuit: (HydraulicIn
     var density by rememberSaveable { mutableStateOf("1035") }
     var heatCapacity by rememberSaveable { mutableStateOf("3.75") }
     var viscosity by rememberSaveable { mutableStateOf("0.0018") }
-    var useCatalogPipe by rememberSaveable { mutableStateOf(true) }
+    var pipeMode by rememberSaveable { mutableStateOf(PipeInputMode.SERIES) }
     var catalogPipeId by rememberSaveable { mutableStateOf("en10220-dn50-60.3x2.9") }
+    var tableId by rememberSaveable { mutableStateOf(PIPE_REFERENCE_TABLES.first().id) }
+    var tableRowIndex by rememberSaveable { mutableStateOf(0) }
+    val table = pipeTableById(tableId) ?: PIPE_REFERENCE_TABLES.first()
+    val tableRow = table.rows.getOrElse(tableRowIndex) { table.rows.first() }
     var result by remember { mutableStateOf<HydraulicResult?>(null) }
     var error by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -281,18 +285,44 @@ private fun HydraulicsPage(text: CalculatorText, onCriticalCircuit: (HydraulicIn
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
-                    selected = useCatalogPipe,
-                    onClick = { useCatalogPipe = true },
+                    selected = pipeMode == PipeInputMode.SERIES,
+                    onClick = { pipeMode = PipeInputMode.SERIES },
                     label = { Text(text.pipeCatalog) },
                 )
                 FilterChip(
-                    selected = !useCatalogPipe,
-                    onClick = { useCatalogPipe = false },
+                    selected = pipeMode == PipeInputMode.TABLE,
+                    onClick = {
+                        pipeMode = PipeInputMode.TABLE
+                        outside = format(tableRow.outsideDiameterMm, 2)
+                        wall = format((tableRow.outsideDiameterMm - tableRow.innerDiameterMm) / 2.0, 3)
+                        roughness = format(table.material.roughnessMm, 4)
+                    },
+                    label = { Text(text.pipeTables) },
+                )
+                FilterChip(
+                    selected = pipeMode == PipeInputMode.MANUAL,
+                    onClick = { pipeMode = PipeInputMode.MANUAL },
                     label = { Text(text.manual) },
                 )
             }
         }
-        if (useCatalogPipe) {
+        if (pipeMode == PipeInputMode.TABLE) {
+            item {
+                PipeTablePicker(
+                    selectedTableId = table.id,
+                    selectedRowIndex = table.rows.indexOf(tableRow),
+                    onSelect = { nextTable, index ->
+                        tableId = nextTable.id
+                        tableRowIndex = index
+                        val row = nextTable.rows[index]
+                        outside = format(row.outsideDiameterMm, 2)
+                        wall = format((row.outsideDiameterMm - row.innerDiameterMm) / 2.0, 3)
+                        roughness = format(nextTable.material.roughnessMm, 4)
+                    },
+                )
+            }
+            item { Advisory(tableRowSummary(text, table, tableRow)) }
+        } else if (pipeMode == PipeInputMode.SERIES) {
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(PIPE_INSTALLATION_SERIES, key = { it.id }) { pipe ->
@@ -353,9 +383,11 @@ private fun HydraulicsPage(text: CalculatorText, onCriticalCircuit: (HydraulicIn
                                 dynamicViscosityPaS = number(viscosity),
                             )
                         }
-                        val pipeSource = if (useCatalogPipe) {
-                            PIPE_INSTALLATION_SERIES.single { it.id == catalogPipeId }.source
-                        } else MANUAL_INPUT_SOURCE
+                        val pipeSource = when (pipeMode) {
+                            PipeInputMode.SERIES -> PIPE_INSTALLATION_SERIES.single { it.id == catalogPipeId }.source
+                            PipeInputMode.TABLE -> table.source
+                            PipeInputMode.MANUAL -> MANUAL_INPUT_SOURCE
+                        }
                         val input = HydraulicInput(
                                 powerKw = number(power),
                                 deltaTK = number(deltaT),
@@ -383,7 +415,7 @@ private fun HydraulicsPage(text: CalculatorText, onCriticalCircuit: (HydraulicIn
         error?.let { item { ErrorCard(it) } }
         result?.let { value -> item { HydraulicResultCard(value, text) } }
         item {
-            Advisory(if (useCatalogPipe) text.manufacturerCatalogWarning else text.manualDimensionsWarning)
+            Advisory(if (pipeMode == PipeInputMode.MANUAL) text.manualDimensionsWarning else text.manufacturerCatalogWarning)
         }
     }
 }
@@ -405,194 +437,10 @@ private fun HydraulicResultCard(result: HydraulicResult, text: CalculatorText) {
 }
 
 @Composable
-private fun InstallationPage(text: CalculatorText) {
-    var overall by rememberSaveable { mutableStateOf("2000") }
-    var takeoutA by rememberSaveable { mutableStateOf("76") }
-    var takeoutB by rememberSaveable { mutableStateOf("76") }
-    var weldGap by rememberSaveable { mutableStateOf("2") }
-    var cut by rememberSaveable { mutableStateOf<Double?>(null) }
-    var offset by rememberSaveable { mutableStateOf("500") }
-    var angle by rememberSaveable { mutableStateOf("45") }
-    var elbowTakeout by rememberSaveable { mutableStateOf("31.5") }
-    var selectedElbowId by rememberSaveable { mutableStateOf("heco-nb45-dn50-60.3x2.9") }
-    var offsetWeldGap by rememberSaveable { mutableStateOf("2") }
-    var insertQuantity by rememberSaveable { mutableStateOf("1") }
-    var stockLengthMm by rememberSaveable { mutableStateOf(6_000) }
-    var sawKerf by rememberSaveable { mutableStateOf("3") }
-    var offsetResult by remember { mutableStateOf<TwoElbowAssemblyResult?>(null) }
-    var x by rememberSaveable { mutableStateOf("300") }
-    var y by rememberSaveable { mutableStateOf("400") }
-    var z by rememberSaveable { mutableStateOf("1200") }
-    var trueLength by rememberSaveable { mutableStateOf<Double?>(null) }
-    var od by rememberSaveable { mutableStateOf("60.3") }
-    var wall by rememberSaveable { mutableStateOf("2.9") }
-    var pipeLength by rememberSaveable { mutableStateOf("1") }
-    var mass by rememberSaveable { mutableStateOf<Double?>(null) }
-    var error by rememberSaveable { mutableStateOf<String?>(null) }
-
-    LazyColumn(
-        Modifier.fillMaxSize().testTag(PipeCalculatorTags.InstallationList),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item { PageHeading(text.installationTitle, text.installationBody) }
-        item { SectionTitle(text.elbowCatalog) }
-        item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(ELBOW_45_3D_CATALOG, key = { it.id }) { elbow ->
-                    FilterChip(
-                        selected = selectedElbowId == elbow.id,
-                        onClick = {
-                            selectedElbowId = elbow.id
-                            angle = format(elbow.angleDeg, 0)
-                            elbowTakeout = format(elbow.centerToEndMm, 1)
-                            val pipe = PIPE_INSTALLATION_SERIES.single { it.dn == elbow.dn }
-                            od = format(pipe.outsideDiameterMm, 1)
-                            wall = format(pipe.wallThicknessMm, 1)
-                        },
-                        label = { Text("DN ${elbow.dn}") },
-                    )
-                }
-            }
-        }
-        item {
-            val elbow = ELBOW_45_3D_CATALOG.single { it.id == selectedElbowId }
-            val pipe = PIPE_INSTALLATION_SERIES.single { it.dn == elbow.dn }
-            Advisory(
-                "45° · R ${format(elbow.centerlineRadiusMm, 1)} mm · " +
-                    "A ${format(elbow.centerToEndMm, 1)} mm · " +
-                    "DN ${pipe.dn} Ø ${format(pipe.outsideDiameterMm, 1)} × ${format(pipe.wallThicknessMm, 1)} mm",
-            )
-        }
-        item { SectionTitle(text.spoolCut) }
-        item { NumericField(overall, { overall = it }, text.overallLength) }
-        item { NumericField(takeoutA, { takeoutA = it }, text.takeoutA) }
-        item { NumericField(takeoutB, { takeoutB = it }, text.takeoutB) }
-        item { NumericField(weldGap, { weldGap = it }, text.weldGapEach) }
-        item {
-            CalculateButton(text.calculate) {
-                runCatching {
-                    straightSpoolCutLengthMm(
-                        number(overall),
-                        listOf(number(takeoutA), number(takeoutB)),
-                        listOf(number(weldGap), number(weldGap)),
-                    )
-                }.onSuccess { cut = it; error = null }.onFailure { error = text.invalidInput(it.message) }
-            }
-        }
-        cut?.let { item { ResultCard(text.cutLength) { Metric(text.cutLength, format(it, 1) + " mm") } } }
-        item { SectionTitle(text.twoElbowOffset) }
-        item { NumericField(offset, { offset = it }, text.targetHeight) }
-        item { NumericField(angle, { angle = it }, text.angle) }
-        item { NumericField(elbowTakeout, { elbowTakeout = it }, text.elbowTakeout) }
-        item { NumericField(offsetWeldGap, { offsetWeldGap = it }, text.weldGapEach) }
-        item { NumericField(insertQuantity, { insertQuantity = it }, text.insertQuantity) }
-        item {
-            Text(text.stockLength, style = MaterialTheme.typography.labelLarge)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(listOf(3_000, 6_000, 12_000)) { length ->
-                    FilterChip(
-                        selected = stockLengthMm == length,
-                        onClick = { stockLengthMm = length },
-                        label = { Text("${length / 1_000} m") },
-                    )
-                }
-            }
-        }
-        item { NumericField(sawKerf, { sawKerf = it }, text.sawKerf) }
-        item {
-            Button(
-                onClick = {
-                    runCatching {
-                        val elbow = ELBOW_45_3D_CATALOG.single { it.id == selectedElbowId }
-                        val pipe = PIPE_INSTALLATION_SERIES.single { it.dn == elbow.dn }
-                        calculateTwoElbowAssembly(
-                            TwoElbowAssemblyInput(
-                                targetHeightMm = number(offset),
-                                angleDeg = number(angle),
-                                elbowTakeoutEachMm = number(elbowTakeout),
-                                weldGapEachMm = number(offsetWeldGap),
-                                pipe = pipe.dimensions(),
-                                quantity = wholeNumber(insertQuantity),
-                                stockLengthMm = stockLengthMm.toDouble(),
-                                sawKerfMm = number(sawKerf),
-                            ),
-                        )
-                    }
-                    .onSuccess { offsetResult = it; error = null }
-                    .onFailure { error = text.invalidInput(it.message) }
-                },
-                modifier = Modifier.fillMaxWidth().testTag(PipeCalculatorTags.CalculateOffsetAssembly),
-            ) { Text(text.calculateInsert) }
-        }
-        offsetResult?.let {
-            val elbow = ELBOW_45_3D_CATALOG.single { item -> item.id == selectedElbowId }
-            val pipe = PIPE_INSTALLATION_SERIES.single { item -> item.dn == elbow.dn }
-            item {
-                DimensionedOffsetPreview(
-                    result = it,
-                    dn = pipe.dn,
-                    outsideDiameterMm = pipe.outsideDiameterMm,
-                    wallThicknessMm = pipe.wallThicknessMm,
-                    description = text.offsetDiagramDescription,
-                    cutPipeLabel = text.cutPipeLabel,
-                    betweenCutMarksLabel = text.betweenCutMarks,
-                    centerToCenterLabel = text.centerToCenter,
-                    faceToFaceLabel = text.faceToFace,
-                    pointLegend = text.offsetPointLegend,
-                    face1Mark = text.face1Mark,
-                    face2Mark = text.face2Mark,
-                )
-            }
-            item {
-                ResultCard(text.insertCutPlan, Modifier.testTag(PipeCalculatorTags.OffsetAssemblyResults)) {
-                    Metric(text.targetHeight, format(it.targetHeightMm, 1) + " mm")
-                    Metric(text.centerTravel, format(it.centerTravelMm, 1) + " mm")
-                    Metric(text.advance, format(it.horizontalAdvanceMm, 1) + " mm")
-                    Metric(text.faceToFace, format(it.fittingFaceDistanceMm, 1) + " mm")
-                    Metric(text.insertCutLength, format(it.insertCutLengthMm, 1) + " mm")
-                    Metric(text.pipeSelection, "DN ${pipe.dn} · Ø ${format(pipe.outsideDiameterMm, 1)} × ${format(pipe.wallThicknessMm, 1)} mm")
-                    Metric(text.massEach, format(it.pipeMassEachKg, 3) + " kg")
-                    Metric(text.totalNetLength, format(it.totalNetPipeLengthMm / 1_000.0, 3) + " m")
-                    Metric(text.piecesPerStock, it.piecesPerStock.toString())
-                    Metric(text.stockBars, "${it.stockBarsRequired} × ${format(it.stockLengthMm / 1_000.0, 0)} m")
-                    Metric(text.estimatedKerf, format(it.estimatedKerfLossMm, 1) + " mm")
-                    Metric(text.estimatedOffcut, format(it.estimatedOffcutMm, 1) + " mm")
-                }
-            }
-            item { Advisory(text.offsetFormulaWarning) }
-        }
-        item { SectionTitle(text.trueLengthAndMass) }
-        item { NumericField(x, { x = it }, "X, mm") }
-        item { NumericField(y, { y = it }, "Y, mm") }
-        item { NumericField(z, { z = it }, "Z, mm") }
-        item {
-            CalculateButton(text.calculateTrueLength) {
-                runCatching { trueLength3dMm(number(x), number(y), number(z)) }
-                    .onSuccess { trueLength = it; error = null }
-                    .onFailure { error = text.invalidInput(it.message) }
-            }
-        }
-        trueLength?.let { item { ResultCard(text.trueLength) { Metric(text.trueLength, format(it, 1) + " mm") } } }
-        item { NumericField(od, { od = it }, text.outsideDiameter) }
-        item { NumericField(wall, { wall = it }, text.wallThickness) }
-        item { NumericField(pipeLength, { pipeLength = it }, text.lengthM) }
-        item {
-            CalculateButton(text.calculateMass) {
-                runCatching { theoreticalPipeMassKg(number(od), number(wall), number(pipeLength)) }
-                    .onSuccess { mass = it; error = null }
-                    .onFailure { error = text.invalidInput(it.message) }
-            }
-        }
-        mass?.let { item { ResultCard(text.theoreticalMass) { Metric(text.theoreticalMass, format(it, 3) + " kg") } } }
-        error?.let { item { ErrorCard(it) } }
-        item { Advisory(text.takeoutWarning) }
-    }
-}
-
-@Composable
 private fun CatalogPage(text: CalculatorText) {
-    var section by rememberSaveable { mutableStateOf(CatalogSection.PIPES) }
+    var section by rememberSaveable { mutableStateOf(CatalogSection.PIPE_TABLES) }
+    var referenceTableId by rememberSaveable { mutableStateOf(PIPE_REFERENCE_TABLES.first().id) }
+    var runLength by rememberSaveable { mutableStateOf("10") }
     var selectedPn by rememberSaveable { mutableStateOf(16) }
     var selectedElbowId by rememberSaveable { mutableStateOf("heco-nb45-dn50-60.3x2.9") }
     var selectedFlangeDn by rememberSaveable { mutableStateOf(50) }
@@ -655,6 +503,43 @@ private fun CatalogPage(text: CalculatorText) {
             }
         }
         when (section) {
+            CatalogSection.PIPE_TABLES -> {
+                val table = pipeTableById(referenceTableId) ?: PIPE_REFERENCE_TABLES.first()
+                item {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        items(PIPE_REFERENCE_TABLES, key = { it.id }) { item ->
+                            FilterChip(
+                                selected = item.id == table.id,
+                                onClick = { referenceTableId = item.id },
+                                label = { Text(item.standard) },
+                            )
+                        }
+                    }
+                }
+                item {
+                    CatalogRow(
+                        "[${table.reference}] ${table.title}",
+                        listOfNotNull(table.standard, table.note).joinToString(" · "),
+                    )
+                }
+                item { NumericField(runLength, { runLength = it }, text.runLengthForVolume) }
+                val metres = runLength.replace(',', '.').toDoubleOrNull()?.takeIf { it > 0.0 }
+                items(table.rows) { row ->
+                    CatalogRow(
+                        row.label + " mm",
+                        buildString {
+                            append("ID ${format(row.innerDiameterMm, 1)} mm · A ${format(row.flowAreaMm2, 1)} mm²")
+                            append(" · ${format(row.volumeLitresPerM, 3)} l/m")
+                            row.massKgM?.let { append(" · ${format(it, 3)} kg/m") }
+                            if (metres != null) {
+                                append("\n${format(metres, 1)} m: ${format(row.volumeLitresPerM * metres, 2)} l")
+                                row.massKgM?.let { append(" · ${format(it * metres, 2)} kg") }
+                            }
+                        },
+                    )
+                }
+                item { CatalogSource(text, table.source.organisation, table.source.document) }
+            }
             CatalogSection.PIPES -> {
                 items(PIPE_INSTALLATION_SERIES, key = { it.id }) { pipe ->
                     CatalogRow(
@@ -719,6 +604,42 @@ private fun CatalogPage(text: CalculatorText) {
             }
         }
     }
+}
+
+@Composable
+private fun PipeTablePicker(
+    selectedTableId: String,
+    selectedRowIndex: Int,
+    onSelect: (PipeTable, Int) -> Unit,
+) {
+    val table = pipeTableById(selectedTableId) ?: PIPE_REFERENCE_TABLES.first()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(PIPE_REFERENCE_TABLES, key = { it.id }) { item ->
+                FilterChip(
+                    selected = item.id == table.id,
+                    onClick = { onSelect(item, 0) },
+                    label = { Text(item.standard) },
+                )
+            }
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(table.rows.size) { index ->
+                val row = table.rows[index]
+                FilterChip(
+                    selected = index == selectedRowIndex,
+                    onClick = { onSelect(table, index) },
+                    label = { Text(row.label) },
+                )
+            }
+        }
+    }
+}
+
+private fun tableRowSummary(text: CalculatorText, table: PipeTable, row: PipeTableRow): String = buildString {
+    append("${table.standard} · ${row.label} mm · ID ${format(row.innerDiameterMm, 1)} mm")
+    append(" · ${text.waterContent} ${format(row.volumeLitresPerM, 3)} l/m")
+    row.massKgM?.let { append(" · ${text.massPerMeter} ${format(it, 3)} kg/m") }
 }
 
 @Composable
@@ -840,18 +761,6 @@ private fun PageHeading(title: String, body: String) {
 }
 
 @Composable
-private fun SectionTitle(title: String) = Text(
-    title,
-    style = MaterialTheme.typography.titleMedium,
-    fontWeight = FontWeight.SemiBold,
-    modifier = Modifier.padding(top = 8.dp),
-)
-
-@Composable
-private fun CalculateButton(label: String, onClick: () -> Unit) =
-    Button(onClick = onClick, modifier = Modifier.fillMaxWidth()) { Text(label) }
-
-@Composable
 private fun ResultCard(
     title: String,
     modifier: Modifier = Modifier,
@@ -890,14 +799,6 @@ private fun Advisory(message: String) {
 private fun number(value: String): Double = value.replace(',', '.').toDoubleOrNull()
     ?: throw IllegalArgumentException("Invalid number")
 
-private fun wholeNumber(value: String): Int {
-    val number = number(value)
-    if (number <= 0.0 || number % 1.0 != 0.0 || number > Int.MAX_VALUE) {
-        throw IllegalArgumentException("Quantity must be a positive whole number")
-    }
-    return number.toInt()
-}
-
 private fun format(value: Double, decimals: Int): String =
     String.format(Locale.getDefault(), "%.${decimals}f", value)
 
@@ -914,7 +815,6 @@ private class CalculatorText(private val language: AppLanguage) {
     val hydraulicsTitle get() = t("Расчёт контура", "Circuit calculation")
     val hydraulicsBody get() = t("Расход, скорость, Reynolds, потери и объём трубы.", "Flow, velocity, Reynolds number, pressure loss and pipe volume.")
     val water get() = t("Вода", "Water")
-    val glycolManual get() = t("Гликоль вручную", "Manual glycol")
     val manual get() = t("Вручную", "Manual")
     val pipeCatalog get() = t("Каталог DN", "DN catalog")
     val massPerMeter get() = t("масса", "mass")
@@ -947,66 +847,25 @@ private class CalculatorText(private val language: AppLanguage) {
         "Это открытые каталожные данные производителя, относящиеся к EN/DIN, а не полный текст стандарта. Перед заказом проверьте фактический материал, исполнение и актуальный паспорт изделия.",
         "These are open manufacturer catalog data associated with EN/DIN, not the full standard. Verify the actual material, execution and current product datasheet before ordering.",
     )
-    val installationTitle get() = t("Монтажная геометрия", "Installation geometry")
-    val installationBody get() = t("Заготовка, смещение двумя отводами, 3D-длина и масса.", "Spool cut, two-elbow offset, 3D true length and theoretical mass.")
-    val elbowCatalog get() = t("Каталожный отвод 45° 3D", "Catalog 45° 3D elbow")
     val elbowAnimationDescription get() = t(
         "Технический контур отвода с внутренней и наружной дугой, сварными торцами, осевой линией и размерами α, R, A, ØD и s.",
         "Technical elbow contour with inner/outer arcs, weld ends, centerline and α, R, A, ØD and s dimensions.",
     )
-    val spoolCut get() = t("Длина заготовки", "Spool cut length")
-    val overallLength get() = t("Общая длина, mm", "Overall length, mm")
     val takeoutA get() = t("Монтажный размер A, mm", "Take-out A, mm")
     val takeoutB get() = t("Монтажный размер B, mm", "Take-out B, mm")
-    val weldGapEach get() = t("Сварочный зазор каждый, mm", "Weld gap each, mm")
     val calculate get() = t("Рассчитать", "Calculate")
-    val cutLength get() = t("Отрезная длина", "Cut length")
-    val twoElbowOffset get() = t("Смещение двумя отводами", "Two-elbow offset")
     val offset get() = t("Смещение, mm", "Offset, mm")
     val targetHeight get() = t("Требуемая высота H, mm", "Required height H, mm")
     val angle get() = t("Угол, градусы", "Angle, degrees")
     val elbowTakeout get() = t("Монтажный размер отвода, mm", "Elbow take-out, mm")
-    val insertQuantity get() = t("Количество одинаковых вставок", "Number of identical inserts")
     val stockLength get() = t("Длина исходного хлыста", "Source stock length")
     val sawKerf get() = t("Ширина реза, mm", "Saw kerf, mm")
-    val calculateInsert get() = t("Рассчитать вставку и раскрой", "Calculate insert and cutting plan")
-    val insertCutPlan get() = t("Вставка и раскрой трубы", "Pipe insert and cutting plan")
     val insertCutLength get() = t("Длина вставки C для резки", "Insert cut length C")
-    val cutPipeLabel get() = t("ОТРЕЗАТЬ ТРУБУ", "CUT PIPE")
-    val betweenCutMarks get() = t("между метками реза 2–3", "between cut marks 2–3")
-    val centerToCenter get() = t("между центрами", "center to center")
-    val faceToFace get() = t("Между сварными торцами F", "Between weld faces F")
-    val face1Mark get() = t("Т1", "F1")
-    val face2Mark get() = t("Т2", "F2")
-    val offsetPointLegend get() = t(
-        "1 — вход отвода 1; Т1 — его сварной торец; 2–3 — труба C для резки; Т2 — сварной торец отвода 2; 4 — конец отвода 2.",
-        "1 — elbow 1 inlet; F1 — its weld face; 2–3 — pipe C to cut; F2 — elbow 2 weld face; 4 — elbow 2 outlet.",
-    )
-    val pipeSelection get() = t("Подобранная труба", "Selected pipe")
-    val massEach get() = t("Масса одной вставки", "Mass per insert")
-    val totalNetLength get() = t("Чистая длина трубы", "Net pipe length")
     val piecesPerStock get() = t("Вставок из одного хлыста", "Inserts per stock")
     val stockBars get() = t("Требуется хлыстов", "Stock bars required")
-    val estimatedKerf get() = t("Потери на рез", "Estimated kerf loss")
-    val estimatedOffcut get() = t("Расчётный остаток", "Estimated offcut")
-    val offsetDiagramDescription get() = t(
-        "Размерная схема пары отводов: L — между центрами, F — между сварными торцами, C — фактическая длина трубы между метками реза 2–3.",
-        "Dimensioned two-elbow diagram: L is center to center, F is weld-face to weld-face and C is the actual pipe length between cut marks 2–3.",
-    )
-    val offsetFormulaWarning get() = t(
-        "Формула C = H / sin(α) − 2A − 2g. Раскрой предполагает один рез на вставку; перед резкой проверьте фактические монтажные размеры обоих отводов и технологию сварки.",
-        "Formula C = H / sin(α) − 2A − 2g. The stock plan assumes one cut per insert; verify both actual elbow take-outs and the welding procedure before cutting.",
-    )
     val centerTravel get() = t("Между центрами отводов L", "Elbow center travel L")
     val advance get() = t("Продвижение", "Advance")
-    val straightBetween get() = t("Прямая между отводами", "Straight between fittings")
-    val trueLengthAndMass get() = t("3D-длина и масса", "3D length and mass")
-    val calculateTrueLength get() = t("Рассчитать 3D-длину", "Calculate 3D length")
-    val trueLength get() = t("Истинная длина", "True length")
     val lengthM get() = t("Длина, m", "Length, m")
-    val calculateMass get() = t("Рассчитать массу", "Calculate mass")
-    val theoreticalMass get() = t("Теоретическая масса", "Theoretical mass")
-    val takeoutWarning get() = t("Монтажные размеры берите из лицензированного стандарта или каталога фактического изделия.", "Take-outs must come from a licensed standard or the datasheet of the actual fitting.")
     val catalogTitle get() = t("Таблицы сварных трубных элементов", "Welded pipe-element tables")
     val catalogBody get() = t(
         "Выборочные открытые ряды DN для труб и EN 10253-4/A, а также присоединительные размеры фланцев PN 6–40 по DIN EN 1092-1.",
@@ -1018,9 +877,13 @@ private class CalculatorText(private val language: AppLanguage) {
         "Technical flange contour: exact D, bolt circle k, hole count and d₂. The side profile is schematic.",
     )
     val frontView get() = t("вид спереди", "front view")
+    val pipeTables get() = t("Таблицы труб", "Pipe tables")
+    val runLengthForVolume get() = t("Длина трассы для объёма и массы, m", "Run length for volume and mass, m")
+    val waterContent get() = t("Объём воды", "Water content")
     val profileByType get() = t("профиль — по типу", "profile — by flange type")
     fun catalogSection(section: CatalogSection) = when (section) {
-        CatalogSection.PIPES -> t("Трубы", "Pipes")
+        CatalogSection.PIPE_TABLES -> t("Таблицы труб", "Pipe tables")
+        CatalogSection.PIPES -> t("Трубы под фитинги", "Fitting pipe series")
         CatalogSection.ELBOWS -> t("Отводы", "Elbows")
         CatalogSection.TEES -> t("Тройники", "Tees")
         CatalogSection.REDUCERS -> t("Переходы", "Reducers")

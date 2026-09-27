@@ -19,7 +19,7 @@ R:\gradlew.bat connectedDebugAndroidTest
 ```
 
 On API 26 the app suite needed a second attempt after the AVD was started with
-`-wipe-data`; see the flakiness note in `docs/TEST_REPORT.md`.
+`-wipe-data`.
 
 Additional cold-process checks passed after a real SAF workflow and
 `adb shell am force-stop com.planruler.app` (2026-07-25 run).
@@ -28,8 +28,8 @@ Additional cold-process checks passed after a real SAF workflow and
 
 `planruler_api35` completed the full 20-test suite after adding template,
 repeat, exact-length and summary-export coverage. The signed minified QA APK
-was then installed separately and launched successfully. A physical-device
-field check remains required by `STAGE1_FIELD_ACCEPTANCE_PROTOCOL.md`.
+was then installed separately and launched successfully. A
+field check on a physical device remains required.
 
 ## Stage 2 beta check — 2026-08-12
 

@@ -1,5 +1,6 @@
 package com.planruler.feature.projects
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -53,7 +54,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.planruler.designsystem.PlanRulerTestTags
@@ -142,6 +142,15 @@ fun ProjectsScreen(
                     it
                 }
             }
+    }
+
+    // Back walks up the shell (search → menu settings → Home tab) before leaving the app.
+    BackHandler(enabled = searching || menuSettingsOpen || tab != ProjectsTab.HOME) {
+        when {
+            searching -> { searching = false; query = "" }
+            menuSettingsOpen -> menuSettingsOpen = false
+            else -> tab = ProjectsTab.HOME
+        }
     }
 
     Scaffold(

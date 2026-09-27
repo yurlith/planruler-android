@@ -44,6 +44,17 @@ class SceneGesture3DTest {
         assertEquals(-25f, moved.panX)
         assertEquals(12f, moved.panY)
         assertEquals(2.3f, moved.zoom, 0.0001f)
-        assertEquals(8f, clamped.zoom)
+        assertEquals(12f, clamped.zoom)
+    }
+
+    @Test
+    fun `pinch keeps the point under the fingers in place`() {
+        val focus = Offset(120f, -40f)
+        val moved = applySceneGesture3D(camera, pointerCount = 2, pan = Offset.Zero, zoomChange = 2f, focus = focus)
+
+        // The model centre sits at pan; the focus point is 'focus' away from it before
+        // the zoom and must stay at the same screen position after it.
+        assertEquals(-120f, moved.panX, 0.001f)
+        assertEquals(40f, moved.panY, 0.001f)
     }
 }

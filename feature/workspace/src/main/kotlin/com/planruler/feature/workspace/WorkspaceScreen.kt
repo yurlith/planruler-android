@@ -1,6 +1,7 @@
 package com.planruler.feature.workspace
 
 import android.view.HapticFeedbackConstants
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -49,7 +50,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.planruler.designsystem.component.CoachTip
-import com.planruler.designsystem.component.IndicatorStatus
+import com.planruler.model.ScreenPoint
+import com.planruler.designsystem.icon.PlanRulerIcons
+import com.planruler.designsystem.component.PlanRulerIconButton
 import com.planruler.designsystem.PlanRulerTestTags
 import com.planruler.designsystem.theme.LocalPlanRulerDimens
 import com.planruler.designsystem.theme.Space
@@ -101,10 +104,12 @@ fun WorkspaceScreen(
     val snackbar = remember { SnackbarHostState() }
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    var tool by remember { mutableStateOf(WorkspaceTool.DISTANCE) }
+    // Opening a plan must never draw on the first swipe: start in pan/zoom mode.
+    var tool by remember { mutableStateOf(WorkspaceTool.NAVIGATE) }
     var mode by remember { mutableStateOf(WorkspaceMode.EDIT) }
     var focusMode by remember { mutableStateOf(false) }
     var viewport by remember { mutableStateOf(ViewportState()) }
+    var viewportPageKey by remember { mutableStateOf<Any?>(null) }
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var selectedId by remember { mutableStateOf<MeasurementId?>(null) }
     var selectedVertex by remember { mutableStateOf<Int?>(null) }
@@ -163,20 +168,28 @@ fun WorkspaceScreen(
     }
     LaunchedEffect(ui.renderedPage, canvasSize) {
         val page = ui.renderedPage ?: return@LaunchedEffect
-        if (canvasSize.width > 0 && canvasSize.height > 0) {
-            val saved = ui.project?.viewport
-            viewport = if (
-                saved != null && saved.centerX.isFinite() && saved.centerY.isFinite() &&
-                (saved.centerX != 0.0 || saved.centerY != 0.0)
-            ) {
-                saved
-            } else {
-                ViewportState(
-                    minOf(canvasSize.width / page.source.width, canvasSize.height / page.source.height) * 0.92,
-                    page.source.width / 2.0,
-                    page.source.height / 2.0,
-                )
-            }
+        if (canvasSize.width <= 0 || canvasSize.height <= 0) return@LaunchedEffect
+        // Only a different page resets the view. A resized canvas (rotation, keyboard,
+        // split screen) keeps the document centre, and re-renders keep the user's zoom.
+        val pageKey = page.documentId to page.pageIndex
+        if (pageKey == viewportPageKey) return@LaunchedEffect
+        val firstPage = viewportPageKey == null
+        viewportPageKey = pageKey
+        // The project stores one viewport; it is only meaningful for the page it was
+        // saved on, i.e. when the plan is reopened, and only if it still shows the page.
+        val saved = ui.project?.viewport?.takeIf { firstPage }
+        viewport = if (
+            saved != null && saved.zoom.isFinite() && saved.zoom > 0.0 &&
+            saved.centerX in 0.0..page.source.width && saved.centerY in 0.0..page.source.height &&
+            (saved.centerX != 0.0 || saved.centerY != 0.0)
+        ) {
+            saved
+        } else {
+            ViewportState(
+                minOf(canvasSize.width / page.source.width, canvasSize.height / page.source.height) * 0.92,
+                page.source.width / 2.0,
+                page.source.height / 2.0,
+            )
         }
         selectedId = null
         selectedVertex = null
@@ -307,6 +320,24 @@ fun WorkspaceScreen(
         selectedId = null
         selectedVertex = null
         haptic(HapticFeedbackConstants.LONG_PRESS)
+    }
+
+    // System back unwinds the workspace state first; only a clean screen returns to projects.
+    BackHandler(
+        enabled = draft != null || overlay != null || focusMode || pickingCalibration ||
+            pickingVerification || selectedId != null,
+    ) {
+        when {
+            draft != null -> { viewModel.cancel(); snapResult = null }
+            overlay != null -> overlay = null
+            pickingCalibration || pickingVerification -> {
+                pickingCalibration = false
+                pickingVerification = false
+                calibrationPoints = emptyList()
+            }
+            focusMode -> focusMode = false
+            else -> { selectedId = null; selectedVertex = null }
+        }
     }
 
     Scaffold(
@@ -559,7 +590,7 @@ fun WorkspaceScreen(
                             doubleTap && draft != null -> finishDraft()
                             doubleTap && tool == WorkspaceTool.NAVIGATE -> {
                                 viewport = viewport.copy(
-                                    zoom = (viewport.zoom * 2).coerceAtMost(32.0),
+                                    zoom = (viewport.zoom * 2).coerceAtMost(64.0),
                                     centerX = point.x,
                                     centerY = point.y,
                                 )
@@ -816,6 +847,21 @@ fun WorkspaceScreen(
                         .padding(Space.x4),
                     style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            if (page != null && canvasSize.width > 0 && !pickingCalibration && !pickingVerification) {
+                ZoomControls(
+                    text = text,
+                    onZoom = { factor ->
+                        val center = ScreenPoint(canvasSize.width / 2.0, canvasSize.height / 2.0)
+                        viewport = ViewportTransform(
+                            canvasSize.width.toDouble(),
+                            canvasSize.height.toDouble(),
+                            viewport,
+                        ).zoomAt(factor, center)
+                    },
+                    onFit = { fitPage() },
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = Space.x2),
                 )
             }
             if (focusMode) {
@@ -1152,5 +1198,27 @@ private fun draftHint(draft: Measurement, viewModel: WorkspaceViewModel, text: W
         "${text.tool(toolOf(draft.type))} · ${draft.points.size}"
     } else {
         "${text.tool(toolOf(draft.type))} · $segment · $value"
+    }
+}
+
+/** Always-available zoom: pinch is not discoverable for everyone and fails with gloves. */
+@Composable
+private fun ZoomControls(
+    text: Wt,
+    onZoom: (Double) -> Unit,
+    onFit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        shape = MaterialTheme.shapes.large,
+        shadowElevation = 4.dp,
+        modifier = modifier,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            PlanRulerIconButton(PlanRulerIcons.Plus, text.zoomIn, { onZoom(1.5) })
+            PlanRulerIconButton(PlanRulerIcons.Minus, text.zoomOut, { onZoom(1.0 / 1.5) })
+            PlanRulerIconButton(PlanRulerIcons.FitPage, text.fitPage, onFit)
+        }
     }
 }

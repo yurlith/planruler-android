@@ -144,7 +144,6 @@ class Wt(private val language: AppLanguage) {
     val saved get() = t("Сохранено", "Saved")
     val saving get() = t("Сохранение…", "Saving…")
     val saveFailed get() = t("Не удалось сохранить", "Could not save")
-    val retry get() = t("Повторить", "Retry")
     val export get() = t("Экспорт", "Export")
     val schedule get() = t("Ведомость", "Schedule")
     val properties get() = t("Свойства", "Properties")
@@ -166,6 +165,8 @@ class Wt(private val language: AppLanguage) {
     val zoomLabel get() = t("Масштаб экрана", "Zoom")
     val fitPage get() = t("Вписать страницу", "Fit page")
     val actualSize get() = t("100 %", "100 %")
+    val zoomIn get() = t("Увеличить", "Zoom in")
+    val zoomOut get() = t("Уменьшить", "Zoom out")
     val toSelection get() = t("К выбранному", "Go to selection")
 
     fun tool(tool: WorkspaceTool) = when (tool) {
@@ -190,7 +191,6 @@ class Wt(private val language: AppLanguage) {
     }
 
     val selectedState get() = t("Выбран", "Selected")
-    val activeTool get() = t("Активный инструмент", "Active tool")
     val canvasDescription get() = t("План и измерения", "Plan drawing and measurement canvas")
     val noPage get() = t("Страница недоступна", "Page unavailable")
     val notCalibrated get() = t("Не откалибровано", "Not calibrated")
@@ -201,7 +201,6 @@ class Wt(private val language: AppLanguage) {
     // Plan revisions
     val revisionWord get() = t("Ревизия", "Revision")
     val revisions get() = t("Ревизии", "Revisions")
-    val newRevision get() = t("Новая ревизия", "New revision")
     val replaceCurrentPage get() = t("Заменить текущую страницу", "Replace current page")
     val previousPlan get() = t("Предыдущий план", "Previous plan")
     val newPlan get() = t("Новый план", "New plan")
@@ -233,7 +232,6 @@ class Wt(private val language: AppLanguage) {
         "Перенесённые измерения являются копиями и не считаются правильными, пока вы их не проверите.",
         "Carried measurements are copies and are not considered correct until you review them.",
     )
-    val noRevisions get() = t("Для этой страницы ревизий пока нет", "This page has no revisions yet")
     fun revisionNumber(number: Int) = t("Ревизия $number", "Revision $number")
     val revisionSaved get() = t("Ревизия сохранена — измерения требуют проверки", "Revision saved — measurements need review")
     val revisionLog get() = t("Журнал ревизий", "Revision log")
@@ -257,7 +255,6 @@ class Wt(private val language: AppLanguage) {
     }
 
     // Calibration
-    val calibrationHow get() = t("Как установить масштаб?", "How should the scale be set?")
     val calibrationByLength get() = t("По известному расстоянию", "By a known distance")
     val calibrationByLengthHint
         get() = t(
@@ -281,7 +278,6 @@ class Wt(private val language: AppLanguage) {
     val calibrationSaved get() = t("Калибровка сохранена", "Calibration saved")
     val imageCalibration
         get() = t("Для изображения доступна только ручная калибровка.", "Images support manual calibration only.")
-    val printedScale get() = t("Печатный масштаб", "Printed scale")
     val printedScaleSure get() = t("Печаталось без изменения размера?", "Printed without resizing?")
     val yes get() = t("Да", "Yes")
     val notSure get() = t("Не уверен", "Not sure")
@@ -353,7 +349,6 @@ class Wt(private val language: AppLanguage) {
     val color get() = t("Цвет", "Colour")
     val category get() = t("Категория", "Category")
     val result get() = t("Результат", "Result")
-    val copyValue get() = t("Копировать значение", "Copy value")
     val copied get() = t("Скопировано", "Copied")
     val diameter get() = t("Диаметр", "Diameter")
     val subcategory get() = t("Подкатегория", "Subcategory")
@@ -399,11 +394,6 @@ class Wt(private val language: AppLanguage) {
     val layerVisible get() = t("Видимый", "Visible")
     val layerLocked get() = t("Заблокирован", "Locked")
     val moveToLayer get() = t("Слой измерения", "Measurement layer")
-    val layerLockedHint
-        get() = t(
-            "Слой заблокирован: разблокируйте его, чтобы редактировать измерения.",
-            "The layer is locked: unlock it to edit its measurements.",
-        )
     val layerInUse
         get() = t("Нельзя удалить слой с измерениями.", "A layer that still holds measurements cannot be deleted.")
     val removeVertex get() = t("Удалить вершину", "Remove vertex")
@@ -420,13 +410,10 @@ class Wt(private val language: AppLanguage) {
     val searchHint get() = t("Поиск", "Search")
     val grouping get() = t("Группировка", "Grouping")
     val groupByPage get() = t("По странице", "By page")
-    val groupByCategory get() = t("По категории", "By category")
-    val groupByType get() = t("По типу", "By type")
     val groupByTemplate get() = t("По шаблону", "By template")
     val groupByMaterial get() = t("По материалу", "By material")
     val groupByLayer get() = t("По слою", "By layer")
     val projectTotal get() = t("Весь проект", "Whole project")
-    val groupNone get() = t("Без группировки", "No grouping")
     val total get() = t("Итого", "Total")
     val noTemplate get() = t("Без шаблона", "No template")
     val noMaterial get() = t("Без материала", "No material")
@@ -442,7 +429,6 @@ class Wt(private val language: AppLanguage) {
     // Export
     val exportFormat get() = t("Формат", "Format")
     val exportContent get() = t("Содержимое", "Content")
-    val exportLook get() = t("Внешний вид", "Appearance")
     val exportPreview get() = t("Предпросмотр", "Preview")
     val exportPdf get() = t("Размеченный PDF", "Annotated PDF")
     val exportCsv get() = t("Ведомость CSV", "Schedule CSV")
@@ -466,21 +452,14 @@ class Wt(private val language: AppLanguage) {
     // Coach tips
     val coachZoom
         get() = t(
-            "Двумя пальцами — масштаб и перемещение. Одним пальцем — постановка точек.",
-            "Two fingers zoom and pan. One finger places points.",
+            "Двумя пальцами — масштаб, одним — перемещение (инструмент «Рука»). Кнопки + и − справа тоже меняют масштаб.",
+            "Pinch to zoom, drag with one finger to pan (Hand tool). The + and − buttons on the right zoom too.",
         )
     val coachCalibration
         get() = t(
             "Сначала укажите известное расстояние — от него зависят все измерения.",
             "Start with a known distance: every measurement depends on it.",
         )
-    val coachMagnifier
-        get() = t(
-            "Удерживайте точку, чтобы открыть лупу и поставить её точно.",
-            "Hold a point to open the magnifier and place it precisely.",
-        )
-    val coachAutosave
-        get() = t("Проект сохраняется автоматически.", "The project saves itself automatically.")
 
     // Photo metadata research
     val photoData get() = t("Данные фото", "Photo data")

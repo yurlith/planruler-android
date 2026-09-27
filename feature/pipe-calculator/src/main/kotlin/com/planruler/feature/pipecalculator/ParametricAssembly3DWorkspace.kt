@@ -1287,8 +1287,6 @@ private class Workspace3DText(private val language: AppLanguage) {
     }
 
     val workspaceTitle get() = t("Warsztat trasy 3D", "3D route workshop", "3D-Routenwerkstatt", "Atelier de tracé 3D", "Officina percorso 3D", "Мастерская 3D-трассы")
-    val workspaceSubtitle get() = t("Model sprawdzony, ręczna budowa, solver i parametry korzystają z jednego silnika.", "Verified model, manual building, solver and parameters share one engine.", "Geprüftes Modell, Handaufbau, Solver und Parameter nutzen dieselbe Engine.", "Le modèle vérifié, le montage manuel, le solveur et les paramètres partagent le même moteur.", "Modello verificato, costruzione manuale, solver e parametri usano lo stesso motore.", "Проверенная модель, ручная сборка, решатель и параметры используют один движок.")
-    val verifiedSummary get() = t("Sprawdzone obliczenie", "Verified calculation", "Geprüfte Berechnung", "Calcul vérifié", "Calcolo verificato", "Проверенный расчёт")
     val elbows get() = t("Kolana", "Elbows", "Bögen", "Coudes", "Curve", "Отводы")
     val pipes get() = t("Rury", "Pipes", "Rohre", "Tubes", "Tubi", "Трубы")
     val tees get() = t("Trójniki", "Tees", "T-Stücke", "Tés", "Tee", "Тройники")

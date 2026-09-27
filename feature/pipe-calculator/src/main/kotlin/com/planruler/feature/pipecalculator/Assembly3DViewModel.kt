@@ -123,10 +123,6 @@ internal class Assembly3DViewModel(
         _state.update { it.copy(activeBranch = path) }
     }
 
-    fun clearError() {
-        _state.update { it.copy(error = null) }
-    }
-
     /** Re-applies the fitter's overrides and replays the current recipe on the new profile. */
     fun setOverrides(next: AssemblyProfileOverrides3D) {
         if (next == overrides) return

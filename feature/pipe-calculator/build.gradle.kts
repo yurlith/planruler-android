@@ -19,6 +19,7 @@ android {
 dependencies {
     implementation(project(":core:model"))
     implementation(project(":core:project-api"))
+    implementation(project(":core:document-api"))
     implementation(project(":core:designsystem"))
     implementation(project(":core:pipe-calculator"))
     implementation(project(":core:fabrication3d-api"))

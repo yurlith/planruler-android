@@ -3,6 +3,7 @@ package com.planruler.app
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -207,7 +208,7 @@ private fun PlanRulerRoot(
                     )
                 }
                 importUri = it.toString()
-                importMime = thisMimeType(it.toString())
+                importMime = thisMimeType(context, it.toString())
                 workspaceKey = it.toString()
                 projectsInitialTab = ProjectsTab.PROJECTS
             }
@@ -338,8 +339,16 @@ private fun PlanRulerRoot(
                         android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
                     )
                 }
-                vm.preparePageRevision(it.toString(), thisMimeType(it.toString()))
+                vm.preparePageRevision(it.toString(), thisMimeType(context, it.toString()))
             }
+        }
+        BackHandler {
+            vm.save()
+            projectId = null
+            importUri = null
+            importMime = null
+            workspaceKey = null
+            refresh++
         }
         WorkspaceScreen(
             viewModel = vm,
@@ -407,10 +416,19 @@ private fun workspaceFactory(
     ) as T
 }
 
-private fun thisMimeType(uri: String): String = when {
-    uri.endsWith(".pdf", true) -> "application/pdf"
-    uri.endsWith(".png", true) -> "image/png"
-    else -> "image/jpeg"
+/**
+ * SAF hands out content:// URIs without file extensions, so the provider is asked first;
+ * guessing from the URI string saved every PDF from Downloads as a JPEG.
+ */
+private fun thisMimeType(context: android.content.Context, uri: String): String {
+    val resolved = runCatching { context.contentResolver.getType(android.net.Uri.parse(uri)) }.getOrNull()
+    return when {
+        !resolved.isNullOrBlank() -> resolved
+        uri.endsWith(".pdf", true) -> "application/pdf"
+        uri.endsWith(".png", true) -> "image/png"
+        uri.endsWith(".jpg", true) || uri.endsWith(".jpeg", true) -> "image/jpeg"
+        else -> ""
+    }
 }
 
 private fun com.planruler.model.AppLanguage.locale(): Locale = when (this) {

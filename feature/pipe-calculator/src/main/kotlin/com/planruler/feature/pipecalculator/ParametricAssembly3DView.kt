@@ -2,9 +2,18 @@
 
 import android.graphics.Paint
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.planruler.designsystem.component.PlanRulerIconButton
+import com.planruler.designsystem.icon.PlanRulerIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateCentroidSize
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
@@ -76,7 +85,6 @@ import com.planruler.fabrication3d.MeshMaterial3D
 import com.planruler.fabrication3d.MeshTriangle3D
 import com.planruler.fabrication3d.ParametricAssembly3D
 import com.planruler.fabrication3d.PartInstance3D
-import com.planruler.fabrication3d.Quaternion
 import com.planruler.fabrication3d.StraightPipeGeometry3D
 import com.planruler.fabrication3d.Vec3
 import com.planruler.fabrication3d.WeldNeckFlangeGeometry3D
@@ -86,7 +94,6 @@ import com.planruler.model.AppLanguage
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sqrt
 import kotlin.math.roundToInt
 
@@ -96,6 +103,50 @@ internal enum class ViewPreset3D(val yaw: Float, val pitch: Float) {
     TOP(0f, 88f),
     RIGHT(88f, 0f),
 }
+
+/**
+ * Camera shared between the inline card and its full-screen dialog, so switching
+ * modes keeps the exact view the fitter was looking at.
+ */
+internal class SceneCamera3D(
+    yaw: Float = ViewPreset3D.ISOMETRIC.yaw,
+    pitch: Float = ViewPreset3D.ISOMETRIC.pitch,
+    zoom: Float = DEFAULT_SCENE_ZOOM,
+    panX: Float = 0f,
+    panY: Float = 0f,
+    perspective: Boolean = true,
+) {
+    var yaw by mutableFloatStateOf(yaw)
+    var pitch by mutableFloatStateOf(pitch)
+    var zoom by mutableFloatStateOf(zoom)
+    var panX by mutableFloatStateOf(panX)
+    var panY by mutableFloatStateOf(panY)
+    var perspective by mutableStateOf(perspective)
+
+    companion object {
+        val Saver = listSaver<SceneCamera3D, Any>(
+            save = { listOf(it.yaw, it.pitch, it.zoom, it.panX, it.panY, it.perspective) },
+            restore = {
+                SceneCamera3D(
+                    it[0] as Float,
+                    it[1] as Float,
+                    it[2] as Float,
+                    it[3] as Float,
+                    it[4] as Float,
+                    it[5] as Boolean,
+                )
+            },
+        )
+    }
+}
+
+internal const val DEFAULT_SCENE_ZOOM = 1.15f
+private const val MIN_SCENE_ZOOM = 0.2f
+private const val MAX_SCENE_ZOOM = 12f
+
+@Composable
+internal fun rememberSceneCamera3D(): SceneCamera3D =
+    rememberSaveable(saver = SceneCamera3D.Saver) { SceneCamera3D() }
 
 @Composable
 internal fun Assembly3DViewerCard(
@@ -113,15 +164,19 @@ internal fun Assembly3DViewerCard(
     onCancelPreview: () -> Unit = {},
     onSceneAdd: () -> Unit = {},
     onSceneRemove: () -> Unit = {},
+    camera: SceneCamera3D = rememberSceneCamera3D(),
+    fullScreen: Boolean = false,
+    onExitFullScreen: () -> Unit = {},
 ) {
     val text = remember(language) { Model3DText(language) }
     val palette = LocalScenePalette.current
-    var yaw by rememberSaveable { mutableFloatStateOf(ViewPreset3D.ISOMETRIC.yaw) }
-    var pitch by rememberSaveable { mutableFloatStateOf(ViewPreset3D.ISOMETRIC.pitch) }
-    var zoom by rememberSaveable { mutableFloatStateOf(1.15f) }
-    var panX by rememberSaveable { mutableFloatStateOf(0f) }
-    var panY by rememberSaveable { mutableFloatStateOf(0f) }
-    var perspective by rememberSaveable { mutableStateOf(true) }
+    var yaw by camera::yaw
+    var pitch by camera::pitch
+    var zoom by camera::zoom
+    var panX by camera::panX
+    var panY by camera::panY
+    var perspective by camera::perspective
+    var showFullScreen by remember { mutableStateOf(false) }
     var localSelection by remember(assembly) {
         mutableStateOf(assembly.parts.firstOrNull { it.id == "P2" }?.id ?: assembly.parts.firstOrNull()?.id)
     }
@@ -140,6 +195,54 @@ internal fun Assembly3DViewerCard(
             )
         }
         return
+    }
+
+    if (showFullScreen && !fullScreen) {
+        Dialog(
+            onDismissRequest = { showFullScreen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
+                    Assembly3DViewerCard(
+                        assembly = assembly,
+                        language = language,
+                        mesh = mesh,
+                        dimensionTarget = dimensionTarget,
+                        selectedPartId = activeSelection,
+                        onSelectPart = { localSelection = it; onSelectPart(it) },
+                        editor = editor,
+                        canAddAtOpenEnd = canAddAtOpenEnd,
+                        onPreview = onPreview,
+                        onCommitPreview = onCommitPreview,
+                        onCancelPreview = onCancelPreview,
+                        onSceneAdd = onSceneAdd,
+                        onSceneRemove = onSceneRemove,
+                        camera = camera,
+                        fullScreen = true,
+                        onExitFullScreen = { showFullScreen = false },
+                    )
+                }
+            }
+        }
+    }
+
+    fun zoomBy(factor: Float) {
+        val next = applySceneGesture3D(
+            SceneCameraGestureState3D(yaw, pitch, zoom, panX, panY),
+            pointerCount = 2,
+            pan = Offset.Zero,
+            zoomChange = factor,
+        )
+        zoom = next.zoom
+        panX = next.panX
+        panY = next.panY
+    }
+
+    val sceneHeight = if (fullScreen) {
+        (LocalConfiguration.current.screenHeightDp.dp - 240.dp).coerceAtLeast(360.dp)
+    } else {
+        460.dp
     }
 
     val projector = remember(mesh, viewportSize, yaw, pitch, zoom, perspective, panX, panY) {
@@ -184,7 +287,7 @@ internal fun Assembly3DViewerCard(
                         onClick = {
                             yaw = preset.yaw
                             pitch = preset.pitch
-                            zoom = 1.15f
+                            zoom = DEFAULT_SCENE_ZOOM
                             panX = 0f
                             panY = 0f
                         },
@@ -204,7 +307,7 @@ internal fun Assembly3DViewerCard(
             Box(
                 Modifier
                     .fillMaxWidth()
-                    .height(460.dp)
+                    .height(sceneHeight)
                     .background(palette.backdropTop, RoundedCornerShape(20.dp))
                     .onSizeChanged { viewportSize = it },
             ) {
@@ -215,12 +318,13 @@ internal fun Assembly3DViewerCard(
                         .semantics { contentDescription = sceneDescription }
                         .pointerInput(mesh) {
                             // A handle is a child hit target and wins. Everywhere else one finger orbits.
-                            detectSceneGestures3D { pointerCount, pan, gestureZoom ->
+                            detectSceneGestures3D { pointerCount, pan, gestureZoom, centroid ->
                                 val next = applySceneGesture3D(
                                     SceneCameraGestureState3D(yaw, pitch, zoom, panX, panY),
                                     pointerCount,
                                     pan,
                                     gestureZoom,
+                                    focus = centroid - Offset(size.width / 2f, size.height / 2f),
                                 )
                                 yaw = next.yaw
                                 pitch = next.pitch
@@ -261,6 +365,28 @@ internal fun Assembly3DViewerCard(
                         heightLabel = text.offset,
                         palette = palette,
                     )
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                    shape = RoundedCornerShape(18.dp),
+                    shadowElevation = 3.dp,
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp),
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        PlanRulerIconButton(PlanRulerIcons.Plus, text.zoomIn, { zoomBy(1.4f) })
+                        PlanRulerIconButton(PlanRulerIcons.Minus, text.zoomOut, { zoomBy(1f / 1.4f) })
+                        PlanRulerIconButton(PlanRulerIcons.FitPage, text.resetView, {
+                            zoom = DEFAULT_SCENE_ZOOM
+                            panX = 0f
+                            panY = 0f
+                        })
+                        if (fullScreen) {
+                            PlanRulerIconButton(PlanRulerIcons.Close, text.exitFullScreen, onExitFullScreen)
+                        } else {
+                            PlanRulerIconButton(PlanRulerIcons.Focus, text.fullScreen, { showFullScreen = true })
+                        }
+                    }
                 }
 
                 if (editor != null) {
@@ -402,18 +528,25 @@ internal data class SceneCameraGestureState3D(
     val panY: Float,
 )
 
-/** One finger orbits; once a second finger joins, the whole gesture pans and zooms. */
+/**
+ * One finger orbits; once a second finger joins, the whole gesture pans and zooms.
+ * [focus] is the pinch centre relative to the viewport centre: the model point under
+ * the fingers stays under them instead of the zoom always pulling to the middle.
+ */
 internal fun applySceneGesture3D(
     state: SceneCameraGestureState3D,
     pointerCount: Int,
     pan: Offset,
     zoomChange: Float,
+    focus: Offset = Offset.Zero,
 ): SceneCameraGestureState3D = if (pointerCount >= 2) {
     val safeZoom = zoomChange.takeIf { it.isFinite() && it > 0f } ?: 1f
+    val nextZoom = (state.zoom * safeZoom).coerceIn(MIN_SCENE_ZOOM, MAX_SCENE_ZOOM)
+    val scale = nextZoom / state.zoom
     state.copy(
-        zoom = (state.zoom * safeZoom).coerceIn(0.35f, 8.0f),
-        panX = state.panX + pan.x,
-        panY = state.panY + pan.y,
+        zoom = nextZoom,
+        panX = focus.x - (focus.x - state.panX) * scale + pan.x,
+        panY = focus.y - (focus.y - state.panY) * scale + pan.y,
     )
 } else {
     state.copy(
@@ -859,7 +992,7 @@ private fun scenePaint(color: Color, sizePx: Float, bold: Boolean = false) = Pai
  * two-finger pan look exactly like a one-finger drag and orbit the model instead.
  */
 private suspend fun PointerInputScope.detectSceneGestures3D(
-    onGesture: (pointerCount: Int, pan: Offset, zoom: Float) -> Unit,
+    onGesture: (pointerCount: Int, pan: Offset, zoom: Float, centroid: Offset) -> Unit,
 ) {
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false)
@@ -887,7 +1020,7 @@ private suspend fun PointerInputScope.detectSceneGestures3D(
                 pastTouchSlop = max(panMotion, zoomMotion) > viewConfiguration.touchSlop
             }
             if (pastTouchSlop) {
-                onGesture(gesturePointerCount, panChange, zoomChange)
+                onGesture(gesturePointerCount, panChange, zoomChange, event.calculateCentroid(useCurrent = true))
                 event.changes.forEach { change ->
                     if (change.positionChanged()) change.consume()
                 }
@@ -927,6 +1060,11 @@ private class Model3DText(private val language: AppLanguage) {
         "Один палец вращает; два — сдвигают и масштабируют. Нажмите на деталь.",
     )
     val gestureHint get() = subtitle
+    val zoomIn get() = t("Powiększ", "Zoom in", "Vergrößern", "Zoom avant", "Ingrandisci", "Увеличить")
+    val zoomOut get() = t("Pomniejsz", "Zoom out", "Verkleinern", "Zoom arrière", "Riduci", "Уменьшить")
+    val resetView get() = t("Dopasuj widok", "Fit view", "Ansicht einpassen", "Ajuster la vue", "Adatta vista", "Вписать модель")
+    val fullScreen get() = t("Pełny ekran", "Full screen", "Vollbild", "Plein écran", "Schermo intero", "Во весь экран")
+    val exitFullScreen get() = t("Zamknij pełny ekran", "Exit full screen", "Vollbild beenden", "Quitter le plein écran", "Esci da schermo intero", "Выйти из полноэкранного режима")
     val perspective get() = t("Perspektywa", "Perspective", "Perspektive", "Perspective", "Prospettiva", "Перспектива")
     val orthographic get() = t("Ortograficzny", "Orthographic", "Orthografisch", "Orthographique", "Ortografica", "Ортографический")
     val selected get() = t("Wybrano", "Selected", "Ausgewählt", "Sélection", "Selezionato", "Выбрано")

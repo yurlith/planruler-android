@@ -3,6 +3,8 @@ package com.planruler.feature.pipecalculator
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.planruler.document.api.BlankDocument
+import com.planruler.model.Calibration
 import com.planruler.model.InstallationJob
 import com.planruler.model.InstallationJobId
 import com.planruler.model.PlanProject
@@ -21,6 +23,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.util.UUID
 
 internal data class InstallationJobsState(
     val projects: List<PlanProject> = emptyList(),
@@ -113,6 +116,37 @@ internal class InstallationJobsViewModel(
         val projectId = _state.value.selectedProjectId ?: return
         viewModelScope.launch {
             applyResult(projectId, repositoryCall { repository.createInstallationJob(projectId, name) })
+        }
+    }
+
+    /**
+     * The workshop must work before any plan exists: create a project on a blank sheet
+     * (openable later as a drawing) and its first installation job in one step.
+     */
+    fun createWorkshopProject(projectName: String, jobName: String) {
+        flushPending()
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val id = UUID.randomUUID().toString()
+            val project = PlanProject(
+                id = ProjectId(id),
+                name = projectName,
+                createdAtEpochMs = now,
+                modifiedAtEpochMs = now,
+                documentUri = BlankDocument.uri(id),
+                mimeType = BlankDocument.MIME_TYPE,
+                pages = listOf(BlankDocument.page),
+                calibration = Calibration.pdfRatio(1.0),
+            )
+            when (val saved = repositoryCall { repository.save(project) }) {
+                is ProjectResult.Error -> setError(saved.error)
+                is ProjectResult.Ok -> {
+                    _state.update {
+                        it.copy(projects = listOf(project) + it.projects, selectedProjectId = project.id)
+                    }
+                    applyResult(project.id, repositoryCall { repository.createInstallationJob(project.id, jobName) })
+                }
+            }
         }
     }
 
