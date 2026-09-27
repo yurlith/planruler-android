@@ -44,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -143,8 +144,8 @@ internal class SceneCamera3D(
 }
 
 internal const val DEFAULT_SCENE_ZOOM = 1.15f
-private const val MIN_SCENE_ZOOM = 0.2f
-private const val MAX_SCENE_ZOOM = 12f
+internal const val MIN_SCENE_ZOOM = 0.2f
+internal const val MAX_SCENE_ZOOM = 12f
 
 @Composable
 internal fun rememberSceneCamera3D(): SceneCamera3D =
@@ -253,6 +254,32 @@ internal fun Assembly3DViewerCard(
         panY = next.panY
     }
 
+    fun fitView() {
+        if (viewportSize.width <= 0 || viewportSize.height <= 0) return
+        val fit = fitSceneCamera(
+            mesh,
+            viewportSize.width.toFloat(),
+            viewportSize.height.toFloat(),
+            yaw,
+            pitch,
+            perspective,
+            minZoom = MIN_SCENE_ZOOM,
+            maxZoom = MAX_SCENE_ZOOM,
+        )
+        zoom = fit.zoom
+        panX = fit.panX
+        panY = fit.panY
+    }
+
+    // Frame the model once it and the viewport exist; later edits keep the user's camera.
+    var framed by remember { mutableStateOf(false) }
+    LaunchedEffect(viewportSize) {
+        if (!framed && viewportSize.width > 0 && viewportSize.height > 0) {
+            fitView()
+            framed = true
+        }
+    }
+
     val sceneHeight = if (fullScreen) {
         (LocalConfiguration.current.screenHeightDp.dp - 240.dp).coerceAtLeast(360.dp)
     } else {
@@ -302,9 +329,7 @@ internal fun Assembly3DViewerCard(
                         onClick = {
                             yaw = preset.yaw
                             pitch = preset.pitch
-                            zoom = DEFAULT_SCENE_ZOOM
-                            panX = 0f
-                            panY = 0f
+                            fitView()
                         },
                         label = { Text(text.preset(preset)) },
                     )
@@ -392,15 +417,11 @@ internal fun Assembly3DViewerCard(
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         PlanRulerIconButton(PlanRulerIcons.Plus, text.zoomIn, { zoomBy(1.4f) })
                         PlanRulerIconButton(PlanRulerIcons.Minus, text.zoomOut, { zoomBy(1f / 1.4f) })
-                        PlanRulerIconButton(PlanRulerIcons.FitPage, text.resetView, {
-                            zoom = DEFAULT_SCENE_ZOOM
-                            panX = 0f
-                            panY = 0f
-                        })
+                        PlanRulerIconButton(PlanRulerIcons.FitPage, text.resetView, { fitView() })
                         if (fullScreen) {
                             PlanRulerIconButton(PlanRulerIcons.Close, text.exitFullScreen, onExitFullScreen)
                         } else {
-                            PlanRulerIconButton(PlanRulerIcons.Focus, text.fullScreen, { showFullScreen = true })
+                            PlanRulerIconButton(PlanRulerIcons.Expand, text.fullScreen, { showFullScreen = true })
                         }
                     }
                 }
