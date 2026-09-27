@@ -1,6 +1,13 @@
 package com.planruler.designsystem.component
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -172,6 +179,150 @@ fun PlanRulerMenuRow(
                 )
             }
             trailing?.let { Icon(it, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+}
+
+/**
+ * Gradient header of the home screen: who/what at a glance and the single most likely
+ * next step (continue the last project, or start one).
+ */
+@Composable
+fun PlanRulerGradientHero(
+    title: String,
+    subtitle: String,
+    actionLabel: String,
+    onAction: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.large)
+            .background(Brush.linearGradient(listOf(scheme.primary, scheme.secondary)))
+            .padding(Space.x5),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(Space.x3)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x3)) {
+                if (icon != null) {
+                    Box(
+                        Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(icon, null, Modifier.size(26.dp), tint = Color.White) }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = Color.White,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White.copy(alpha = 0.86f),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            FilledTonalButton(onClick = onAction) { Text(actionLabel) }
+        }
+    }
+}
+
+/** Square quick action: big touch target, icon first, at most two lines of title. */
+@Composable
+fun PlanRulerActionTile(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Color = MaterialTheme.colorScheme.primary,
+    subtitle: String? = null,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth().heightIn(min = 118.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+    ) {
+        Column(Modifier.padding(Space.x4), verticalArrangement = Arrangement.spacedBy(Space.x2)) {
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).background(accent),
+                contentAlignment = Alignment.Center,
+            ) { Icon(icon, null, Modifier.size(24.dp), tint = Color.White) }
+            Text(
+                title,
+                style = MaterialTheme.typography.titleSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            subtitle?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** Compact tool card for two-column grids: small illustration, title and a two-line hint. */
+@Composable
+fun PlanRulerCompactToolCard(
+    icon: ImageVector,
+    title: String,
+    body: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Color = MaterialTheme.colorScheme.primary,
+    preview: (@Composable () -> Unit)? = null,
+) {
+    Surface(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f)),
+    ) {
+        Column {
+            Box(
+                Modifier.fillMaxWidth().height(76.dp).background(accent.copy(alpha = 0.10f)).padding(Space.x2),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (preview != null) {
+                    Box(Modifier.fillMaxSize()) { preview() }
+                } else {
+                    Icon(icon, null, Modifier.size(36.dp), tint = accent)
+                }
+            }
+            Column(Modifier.padding(Space.x3), verticalArrangement = Arrangement.spacedBy(Space.x1)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
+                    Icon(icon, null, Modifier.size(18.dp), tint = accent)
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleSmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Text(
+                    body,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.heightIn(min = 32.dp),
+                )
+            }
         }
     }
 }

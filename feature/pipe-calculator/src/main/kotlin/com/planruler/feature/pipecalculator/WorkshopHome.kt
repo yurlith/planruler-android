@@ -4,8 +4,6 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.MaterialTheme
@@ -21,7 +19,11 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.planruler.designsystem.PlanRulerTestTags
-import com.planruler.designsystem.component.PlanRulerToolTile
+import com.planruler.designsystem.component.PlanRulerCompactToolCard
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.material3.Text
 import com.planruler.designsystem.icon.PlanRulerIcons
 import com.planruler.designsystem.localization.UiTextKey
 import com.planruler.designsystem.localization.uiText
@@ -47,16 +49,29 @@ private val workshopEntries = listOf(
 @Composable
 internal fun WorkshopHome(language: AppLanguage, onSelect: (CalculatorTool) -> Unit) {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(280.dp),
+        columns = GridCells.Adaptive(156.dp),
         modifier = Modifier.fillMaxSize().testTag(PlanRulerTestTags.WorkshopRoot),
         contentPadding = PaddingValues(start = Space.x4, end = Space.x4, top = Space.x4, bottom = 104.dp),
         horizontalArrangement = Arrangement.spacedBy(Space.x3),
         verticalArrangement = Arrangement.spacedBy(Space.x3),
     ) {
+        item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
+            Column(Modifier.padding(bottom = Space.x1)) {
+                Text(
+                    uiText(language, UiTextKey.WORKSHOP_TITLE),
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+                Text(
+                    uiText(language, UiTextKey.WORKSHOP_SUBTITLE),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
         workshopEntries.forEach { entry ->
             item(key = entry.tool.name) {
                 val accent = workshopAccent(entry.tool)
-                PlanRulerToolTile(
+                PlanRulerCompactToolCard(
                     icon = workshopIcon(entry.tool),
                     title = uiText(language, entry.title),
                     body = uiText(language, entry.body),
@@ -95,7 +110,7 @@ private fun workshopIcon(tool: CalculatorTool) = when (tool) {
 @Composable
 private fun WorkshopDiagram(tool: CalculatorTool, accent: Color) {
     val secondary = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-    Canvas(Modifier.fillMaxWidth().height(92.dp)) {
+    Canvas(Modifier.fillMaxSize()) {
         val w = size.width
         val h = size.height
         when (tool) {

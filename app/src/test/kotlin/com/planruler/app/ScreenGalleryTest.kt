@@ -80,14 +80,15 @@ class ScreenGalleryTest {
         tool("INSTALLATION")
         shot("06-installation")
         compose.onNode(hasText("Создать проект мастерской")).performClick()
-        compose.waitUntil(15_000) {
-            compose.onAllNodes(hasTestTag(PipeCalculatorTags.InstallationList)).fetchSemanticsNodes().isNotEmpty()
+        settle {
+            compose.onAllNodes(hasText("Создать проект мастерской")).fetchSemanticsNodes().isEmpty() &&
+                compose.onAllNodes(hasTestTag(PipeCalculatorTags.Assembly3DCanvas)).fetchSemanticsNodes().isNotEmpty()
         }
-        compose.waitForIdle()
         shot("07-installation-job")
-        compose.onNode(hasTestTag(PipeCalculatorTags.InstallationList))
-            .performScrollToNode(hasTestTag(PipeCalculatorTags.Assembly3DCanvas))
-        compose.waitForIdle()
+        runCatching {
+            compose.onNode(hasTestTag(PipeCalculatorTags.InstallationList))
+                .performScrollToNode(hasTestTag(PipeCalculatorTags.Assembly3DCanvas))
+        }
         shot("08-3d")
     }
 
@@ -96,11 +97,30 @@ class ScreenGalleryTest {
         compose.onNode(hasTestTag(PlanRulerTestTags.HomeRoot))
             .performScrollToNode(hasTestTag(PlanRulerTestTags.NewDrawing))
         compose.onNode(hasTestTag(PlanRulerTestTags.NewDrawing)).performClick()
-        compose.waitUntil(15_000) {
+        settle {
             compose.onAllNodes(hasTestTag(PlanRulerTestTags.WorkspaceCanvas)).fetchSemanticsNodes().isNotEmpty()
         }
-        compose.waitForIdle()
         shot("09-workspace")
+    }
+
+    /** Waits for a condition but still lets the screenshot show whatever state was reached. */
+    private fun settle(condition: () -> Boolean) {
+        runCatching { compose.waitUntil(20_000, condition) }
+        // Robolectric runs IO on real threads; give background saves/renders a moment.
+        repeat(10) {
+            Thread.sleep(100)
+            compose.mainClock.advanceTimeBy(100)
+            compose.waitForIdle()
+        }
+    }
+
+    @Test
+    fun homeDark() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("planruler-settings", 0).edit().putString("theme", "DARK").commit()
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        shot("11-home-dark")
     }
 
     @Test

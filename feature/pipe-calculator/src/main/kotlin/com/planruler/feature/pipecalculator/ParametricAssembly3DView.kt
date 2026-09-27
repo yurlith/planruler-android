@@ -1,6 +1,7 @@
 ﻿package com.planruler.feature.pipecalculator
 
 import android.graphics.Paint
+import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -245,6 +246,7 @@ internal fun Assembly3DViewerCard(
         460.dp
     }
 
+    val smoothNormals = remember(mesh) { SmoothNormals3D(mesh) }
     val projector = remember(mesh, viewportSize, yaw, pitch, zoom, perspective, panX, panY) {
         viewportSize.takeIf { it.width > 0 && it.height > 0 }?.let {
             SceneProjector3D(
@@ -358,6 +360,7 @@ internal fun Assembly3DViewerCard(
                     )
                     drawAssemblyScene3D(
                         mesh = mesh,
+                        normals = smoothNormals,
                         projector = sceneProjector,
                         selectedPartId = activeSelection,
                         dimensionTarget = dimensionTarget,
@@ -687,17 +690,9 @@ private fun SceneLegend(color: Color, label: String) {
     }
 }
 
-private data class ProjectedTriangle3D(
-    val source: MeshTriangle3D,
-    val a: Offset,
-    val b: Offset,
-    val c: Offset,
-    val depth: Double,
-    val shade: Float,
-)
-
 private fun DrawScope.drawAssemblyScene3D(
     mesh: AssemblyMesh3D,
+    normals: SmoothNormals3D,
     projector: SceneProjector3D,
     selectedPartId: String?,
     dimensionTarget: Vec3?,
@@ -713,49 +708,8 @@ private fun DrawScope.drawAssemblyScene3D(
     )
     drawEngineeringGrid(mesh, projector, palette)
 
-    val light = Vec3(-0.25, -0.35, 1.0).normalized()
-    val triangles = mesh.triangles.mapNotNull { triangle ->
-        val a = projector.project(triangle.a)
-        val b = projector.project(triangle.b)
-        val c = projector.project(triangle.c)
-        if (!a.visible || !b.visible || !c.visible) return@mapNotNull null
-        val normal = projector.rotateDirection(triangle.normal)
-        ProjectedTriangle3D(
-            source = triangle,
-            a = a.screen,
-            b = b.screen,
-            c = c.screen,
-            depth = (a.depth + b.depth + c.depth) / 3.0,
-            // The ambient floor comes from the theme: a face that shades to black reads as
-            // a hole on a pale backdrop and vanishes on a dark one.
-            shade = (palette.shadeFloor + (1f - palette.shadeFloor) * abs(normal.dot(light))).toFloat(),
-        )
-    }.sortedBy { it.depth }
-
-    triangles.forEach { triangle ->
-        val selected = triangle.source.partId == selectedPartId
-        val base = if (selected) palette.selection else materialColor(triangle.source.material, palette)
-        val path = Path().apply {
-            moveTo(triangle.a.x, triangle.a.y)
-            lineTo(triangle.b.x, triangle.b.y)
-            lineTo(triangle.c.x, triangle.c.y)
-            close()
-        }
-        drawPath(path, base.adjustBrightness(triangle.shade))
-        when {
-            selected -> drawPath(
-                path,
-                palette.selection.copy(alpha = 0.28f),
-                style = Stroke(palette.outlineWidth),
-            )
-            // Glare and low-vision themes carry shape in the outline, not in the fill.
-            palette.outlineEveryPart -> drawPath(
-                path,
-                palette.onScene.copy(alpha = 0.22f),
-                style = Stroke(palette.outlineWidth),
-            )
-        }
-    }
+    drawGroundShadow(mesh, projector, palette)
+    drawShadedMesh(mesh, normals, projector, selectedPartId, palette)
 
     mesh.polylines.forEach { polyline ->
         val projected = polyline.points.map(projector::project).filter { it.visible }
@@ -771,6 +725,122 @@ private fun DrawScope.drawAssemblyScene3D(
     dimensionTarget?.let { drawSceneDimensions(projector, mesh, it, overallLabel, heightLabel, palette) }
     drawPartLabels(mesh, projector, selectedPartId, palette)
     drawAxisTriad(projector, palette)
+}
+
+/**
+ * Smooth-shaded solid: one vertex-coloured triangle batch, far to near. One draw call
+ * instead of a Path per triangle is several times faster and leaves no anti-aliasing
+ * seams between neighbouring triangles. Glare themes and pre-Q hardware canvases, which
+ * cannot draw vertices, keep per-triangle paths with outlines.
+ */
+private fun DrawScope.drawShadedMesh(
+    mesh: AssemblyMesh3D,
+    normals: SmoothNormals3D,
+    projector: SceneProjector3D,
+    selectedPartId: String?,
+    palette: PlanRulerScenePalette,
+) {
+    val triangles = mesh.triangles
+    val count = triangles.size
+    val xs = FloatArray(count * 3)
+    val ys = FloatArray(count * 3)
+    val depth = DoubleArray(count)
+    val visible = ArrayList<Int>(count)
+    triangles.forEachIndexed { index, triangle ->
+        val a = projector.project(triangle.a)
+        val b = projector.project(triangle.b)
+        val c = projector.project(triangle.c)
+        if (a.visible && b.visible && c.visible) {
+            xs[index * 3] = a.screen.x; ys[index * 3] = a.screen.y
+            xs[index * 3 + 1] = b.screen.x; ys[index * 3 + 1] = b.screen.y
+            xs[index * 3 + 2] = c.screen.x; ys[index * 3 + 2] = c.screen.y
+            depth[index] = (a.depth + b.depth + c.depth) / 3.0
+            visible += index
+        }
+    }
+    val order = visible.sortedBy { depth[it] }
+    val colors = IntArray(order.size * 3)
+    order.forEachIndexed { slot, index ->
+        val triangle = triangles[index]
+        val base = if (triangle.partId == selectedPartId) palette.selection else materialColor(triangle.material, palette)
+        repeat(3) { corner ->
+            val light = SceneLighting3D.shade(projector.rotateDirection(normals.normal(index, corner)), palette.shadeFloor)
+            colors[slot * 3 + corner] = Color(
+                red = litChannel(base.red, light),
+                green = litChannel(base.green, light),
+                blue = litChannel(base.blue, light),
+                alpha = base.alpha,
+            ).toArgb()
+        }
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !palette.outlineEveryPart) {
+        val vertices = FloatArray(order.size * 6)
+        order.forEachIndexed { slot, index ->
+            repeat(3) { corner ->
+                vertices[slot * 6 + corner * 2] = xs[index * 3 + corner]
+                vertices[slot * 6 + corner * 2 + 1] = ys[index * 3 + corner]
+            }
+        }
+        drawIntoCanvas { canvas ->
+            canvas.nativeCanvas.drawVertices(
+                android.graphics.Canvas.VertexMode.TRIANGLES,
+                vertices.size,
+                vertices,
+                0,
+                null,
+                0,
+                colors,
+                0,
+                null,
+                0,
+                0,
+                Paint(),
+            )
+        }
+    } else {
+        val path = Path()
+        order.forEachIndexed { slot, index ->
+            path.reset()
+            path.moveTo(xs[index * 3], ys[index * 3])
+            path.lineTo(xs[index * 3 + 1], ys[index * 3 + 1])
+            path.lineTo(xs[index * 3 + 2], ys[index * 3 + 2])
+            path.close()
+            drawPath(path, Color(colors[slot * 3 + 1]))
+            if (palette.outlineEveryPart) {
+                drawPath(path, palette.onScene.copy(alpha = 0.22f), style = Stroke(palette.outlineWidth))
+            }
+        }
+    }
+}
+
+/** A soft contact shadow on the floor grid anchors the model in space. */
+private fun DrawScope.drawGroundShadow(
+    mesh: AssemblyMesh3D,
+    projector: SceneProjector3D,
+    palette: PlanRulerScenePalette,
+) {
+    val bounds = mesh.bounds
+    val center = bounds.center
+    val floorZ = bounds.minimum.z - bounds.size.z * 0.12
+    val rx = (bounds.size.x / 2.0).coerceAtLeast(bounds.radius * 0.25) * 1.08
+    val ry = (bounds.size.y / 2.0).coerceAtLeast(bounds.radius * 0.25) * 1.08
+    listOf(1.0f to 0.05f, 0.78f to 0.06f, 0.55f to 0.07f).forEach { (scale, alpha) ->
+        val points = (0 until 36).map { step ->
+            val angle = step * 2.0 * Math.PI / 36.0
+            projector.project(
+                Vec3(center.x + rx * scale * kotlin.math.cos(angle), center.y + ry * scale * kotlin.math.sin(angle), floorZ),
+            )
+        }
+        if (points.all { it.visible }) {
+            val path = Path().apply {
+                moveTo(points.first().screen.x, points.first().screen.y)
+                points.drop(1).forEach { lineTo(it.screen.x, it.screen.y) }
+                close()
+            }
+            drawPath(path, Color.Black.copy(alpha = alpha))
+        }
+    }
 }
 
 private fun DrawScope.drawEngineeringGrid(
@@ -965,13 +1035,6 @@ private fun materialColorForPart(partId: String, palette: PlanRulerScenePalette)
     partId.startsWith("E") -> palette.elbow
     else -> palette.pipe
 }
-
-private fun Color.adjustBrightness(factor: Float): Color = Color(
-    red = (red * factor).coerceIn(0f, 1f),
-    green = (green * factor).coerceIn(0f, 1f),
-    blue = (blue * factor).coerceIn(0f, 1f),
-    alpha = alpha,
-)
 
 private fun partDimensions(part: PartInstance3D): String = when (val geometry = part.definition.geometry) {
     is StraightPipeGeometry3D -> "L ${sceneNumber(geometry.lengthMm)} mm"

@@ -1,6 +1,9 @@
 package com.planruler.feature.projects
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.text.font.FontWeight
+import com.planruler.designsystem.component.PlanRulerActionTile
+import com.planruler.designsystem.component.PlanRulerGradientHero
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -60,9 +63,7 @@ import com.planruler.designsystem.PlanRulerTestTags
 import com.planruler.designsystem.component.EmptyState
 import com.planruler.designsystem.component.IndicatorStatus
 import com.planruler.designsystem.component.PlanRulerIconButton
-import com.planruler.designsystem.component.PlanRulerHeroCard
 import com.planruler.designsystem.component.PlanRulerMenuRow
-import com.planruler.designsystem.component.PlanRulerToolTile
 import com.planruler.designsystem.icon.PlanRulerIcons
 import com.planruler.designsystem.layout.NavigationStyle
 import com.planruler.designsystem.layout.rememberPlanRulerLayout
@@ -155,7 +156,8 @@ fun ProjectsScreen(
 
     Scaffold(
         topBar = {
-            CenterAlignedTopAppBar(
+            // The workshop draws its own compact header; a second bar only ate the screen.
+            if (tab != ProjectsTab.WORKSHOP) CenterAlignedTopAppBar(
                 title = {
                     if (searching && projectTab) {
                         OutlinedTextField(
@@ -166,12 +168,11 @@ fun ProjectsScreen(
                             modifier = Modifier.fillMaxWidth().testTag(PlanRulerTestTags.ProjectsSearch),
                         )
                     } else {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(topTitle(tab, menuSettingsOpen, settings.language), style = MaterialTheme.typography.titleLarge)
-                            topSubtitle(tab, settings.language).takeIf(String::isNotBlank)?.let {
-                                Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                            }
-                        }
+                        Text(
+                            topTitle(tab, menuSettingsOpen, settings.language),
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                        )
                     }
                 },
                 navigationIcon = {
@@ -242,7 +243,15 @@ fun ProjectsScreen(
                             },
                             modifier = Modifier.testTag(PlanRulerTestTags.navigation(candidate.name)),
                             icon = { Icon(tabIcon(candidate), null) },
-                            label = { Text(text.tab(candidate)) },
+                            label = {
+                                Text(
+                                    text.tab(candidate),
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall,
+                                )
+                            },
                         )
                     }
                 }
@@ -390,14 +399,6 @@ private fun topTitle(tab: ProjectsTab, menuSettingsOpen: Boolean, language: AppL
     )
 }
 
-private fun topSubtitle(tab: ProjectsTab, language: AppLanguage): String = when (tab) {
-    ProjectsTab.HOME -> uiText(language, UiTextKey.HOME_TITLE)
-    ProjectsTab.PROJECTS -> uiText(language, UiTextKey.PROJECTS_SUBTITLE)
-    ProjectsTab.WORKSHOP -> uiText(language, UiTextKey.WORKSHOP_SUBTITLE)
-    ProjectsTab.CRM -> uiText(language, UiTextKey.LOCAL_ONLY)
-    ProjectsTab.MENU -> uiText(language, UiTextKey.MENU_SUBTITLE)
-}
-
 @Composable
 private fun HomeDashboard(
     projects: List<PlanProject>,
@@ -412,19 +413,20 @@ private fun HomeDashboard(
     val recent = remember(projects) { projects.sortedByDescending(PlanProject::modifiedAtEpochMs).take(3) }
     val latest = recent.firstOrNull()
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(260.dp),
+        columns = GridCells.Adaptive(156.dp),
         modifier = Modifier.fillMaxSize().testTag(PlanRulerTestTags.HomeRoot),
-        contentPadding = PaddingValues(start = Space.x4, end = Space.x4, top = Space.x4, bottom = 104.dp),
+        contentPadding = PaddingValues(start = Space.x4, end = Space.x4, top = Space.x3, bottom = 104.dp),
         horizontalArrangement = Arrangement.spacedBy(Space.x3),
         verticalArrangement = Arrangement.spacedBy(Space.x3),
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
-            PlanRulerHeroCard(
+            PlanRulerGradientHero(
                 title = latest?.name ?: uiText(language, UiTextKey.HOME_TITLE),
-                body = if (latest == null) {
+                subtitle = if (latest == null) {
                     uiText(language, UiTextKey.HOME_SUBTITLE)
                 } else {
-                    uiText(language, UiTextKey.PROJECTS_SUBTITLE)
+                    formatProjectCount(language, projects.size) + " · " +
+                        DateFormat.getDateInstance(DateFormat.MEDIUM).format(Date(latest.modifiedAtEpochMs))
                 },
                 actionLabel = uiText(
                     language,
@@ -432,107 +434,101 @@ private fun HomeDashboard(
                 ),
                 onAction = { if (latest == null) onImport() else onOpen(latest) },
                 icon = if (latest == null) PlanRulerIcons.Home else PlanRulerIcons.Folder,
-                supportingText = formatProjectCount(language, projects.size),
             )
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(uiText(language, UiTextKey.QUICK_ACTIONS), style = MaterialTheme.typography.titleLarge)
+            SectionLabel(uiText(language, UiTextKey.QUICK_ACTIONS))
         }
         item {
-            PlanRulerToolTile(
+            PlanRulerActionTile(
                 icon = PlanRulerIcons.Plus,
                 title = newDrawingTitle(language),
-                body = newDrawingBody(language),
                 onClick = onNewDrawing,
                 modifier = Modifier.testTag(PlanRulerTestTags.NewDrawing),
                 accent = MaterialTheme.colorScheme.primary,
+                subtitle = "A4",
             )
         }
         item {
-            PlanRulerToolTile(
+            PlanRulerActionTile(
                 icon = PlanRulerIcons.Document,
                 title = uiText(language, UiTextKey.IMPORT_PLAN),
-                body = uiText(language, UiTextKey.PROJECTS_SUBTITLE),
                 onClick = onImport,
                 modifier = Modifier.testTag(PlanRulerTestTags.ProjectsFab),
-            )
-        }
-        item {
-            PlanRulerToolTile(
-                icon = PlanRulerIcons.Ruler,
-                title = uiText(language, UiTextKey.OPEN_WORKSHOP),
-                body = uiText(language, UiTextKey.WORKSHOP_SUBTITLE),
-                onClick = onWorkshop,
                 accent = MaterialTheme.colorScheme.secondary,
+                subtitle = "PDF · JPG · PNG",
             )
         }
         item {
-            PlanRulerToolTile(
-                icon = PlanRulerIcons.Schedule,
-                title = uiText(language, UiTextKey.OPEN_CRM),
-                body = uiText(language, UiTextKey.MENU_PROFILE_BODY),
-                onClick = onCrm,
+            PlanRulerActionTile(
+                icon = PlanRulerIcons.Ruler,
+                title = uiText(language, UiTextKey.NAV_WORKSHOP),
+                onClick = onWorkshop,
                 accent = MaterialTheme.colorScheme.tertiary,
+                subtitle = "3D · DN/PN",
             )
         }
         item {
-            PlanRulerToolTile(
-                icon = PlanRulerIcons.Folder,
-                title = uiText(language, UiTextKey.NAV_PROJECTS),
-                body = formatProjectCount(language, projects.size),
-                onClick = onProjects,
+            PlanRulerActionTile(
+                icon = PlanRulerIcons.Schedule,
+                title = uiText(language, UiTextKey.NAV_CRM),
+                onClick = onCrm,
+                accent = Color(0xFF7C5CFC),
+                subtitle = uiText(language, UiTextKey.LOCAL_ONLY),
             )
         }
         item(span = { GridItemSpan(maxLineSpan) }) {
-            ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)) {
-                Row(
-                    Modifier.fillMaxWidth().padding(Space.x4),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(Space.x3),
-                ) {
-                    Icon(PlanRulerIcons.Check, null, tint = MaterialTheme.colorScheme.onSecondaryContainer)
-                    Column {
-                        Text(
-                            uiText(language, UiTextKey.LOCAL_ONLY),
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                        Text(
-                            uiText(language, UiTextKey.LOCAL_ONLY_BODY),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                        )
-                    }
+            Row(
+                Modifier.fillMaxWidth().padding(top = Space.x2),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionLabel(uiText(language, UiTextKey.RECENT_PROJECTS), Modifier.weight(1f))
+                if (projects.isNotEmpty()) {
+                    TextButton(onProjects) { Text(uiText(language, UiTextKey.NAV_PROJECTS)) }
                 }
             }
-        }
-        item(span = { GridItemSpan(maxLineSpan) }) {
-            Text(uiText(language, UiTextKey.RECENT_PROJECTS), style = MaterialTheme.typography.titleLarge)
         }
         if (recent.isEmpty()) {
             item(span = { GridItemSpan(maxLineSpan) }) {
                 Text(
                     uiText(language, UiTextKey.NO_RECENT_PROJECTS),
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         } else {
-            items(recent, key = { "home-${it.id.value}" }) { project ->
-                ElevatedCard(
-                    Modifier.fillMaxWidth().clickable { onOpen(project) },
-                    shape = MaterialTheme.shapes.medium,
+            items(recent, key = { "home-${it.id.value}" }, span = { GridItemSpan(maxLineSpan) }) { project ->
+                Surface(
+                    onClick = { onOpen(project) },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.surface,
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().padding(Space.x4),
+                        Modifier.fillMaxWidth().padding(horizontal = Space.x4, vertical = Space.x3),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(Space.x3),
                     ) {
-                        Icon(PlanRulerIcons.Document, null, tint = MaterialTheme.colorScheme.primary)
+                        Surface(
+                            shape = MaterialTheme.shapes.extraSmall,
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        ) {
+                            Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                                Icon(PlanRulerIcons.Document, null, Modifier.size(22.dp))
+                            }
+                        }
                         Column(Modifier.weight(1f)) {
-                            Text(project.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                             Text(
-                                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(project.modifiedAtEpochMs)),
+                                project.name,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                                    .format(Date(project.modifiedAtEpochMs)) +
+                                    " · ${project.measurements.size}",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -542,7 +538,26 @@ private fun HomeDashboard(
                 }
             }
         }
+        item(span = { GridItemSpan(maxLineSpan) }) {
+            Row(
+                Modifier.fillMaxWidth().padding(top = Space.x2),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.x2),
+            ) {
+                Icon(PlanRulerIcons.Check, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.secondary)
+                Text(
+                    uiText(language, UiTextKey.LOCAL_ONLY_BODY),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
+}
+
+@Composable
+private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(text, modifier, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 }
 
 @Composable
