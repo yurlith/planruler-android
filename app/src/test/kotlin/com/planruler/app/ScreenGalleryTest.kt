@@ -87,8 +87,9 @@ class ScreenGalleryTest {
         shot("07-installation-job")
         runCatching {
             compose.onNode(hasTestTag(PipeCalculatorTags.InstallationList))
-                .performScrollToNode(hasTestTag(PipeCalculatorTags.Assembly3DCanvas))
+                .performScrollToNode(hasTestTag(PipeCalculatorTags.Assembly3DSummary))
         }
+        settle { true }
         shot("08-3d")
     }
 
@@ -103,14 +104,24 @@ class ScreenGalleryTest {
         shot("09-workspace")
     }
 
-    /** Waits for a condition but still lets the screenshot show whatever state was reached. */
+    /**
+     * Waits for a condition but still lets the screenshot show whatever state was reached.
+     * Infinite progress animations keep Compose busy, so the main looper is drained by hand
+     * to deliver results of background work.
+     */
     private fun settle(condition: () -> Boolean) {
-        runCatching { compose.waitUntil(20_000, condition) }
-        // Robolectric runs IO on real threads; give background saves/renders a moment.
+        val looper = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        val deadline = System.currentTimeMillis() + 30_000
+        while (System.currentTimeMillis() < deadline) {
+            Thread.sleep(50)
+            looper.idle()
+            compose.mainClock.advanceTimeBy(32)
+            if (runCatching(condition).getOrDefault(false)) break
+        }
         repeat(10) {
-            Thread.sleep(100)
-            compose.mainClock.advanceTimeBy(100)
-            compose.waitForIdle()
+            Thread.sleep(50)
+            looper.idle()
+            compose.mainClock.advanceTimeBy(32)
         }
     }
 
