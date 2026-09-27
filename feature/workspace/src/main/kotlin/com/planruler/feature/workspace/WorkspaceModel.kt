@@ -254,6 +254,14 @@ class Wt(private val language: AppLanguage) {
     }
 
     // Calibration
+    fun pdfSheetSize(size: String) = t("Лист PDF: $size", "PDF sheet: $size")
+    val pdfSheetHint
+        get() = t(
+            "Масштаб с чертежа верен, только если PDF сохранён на том же формате листа. Если чертёж 1:50 на A1 сохранён на A3, реальный масштаб ≈ 1:100 — проверьте известным размером.",
+            "The drawing's ratio holds only when the PDF keeps the original sheet size. A 1:50 A1 drawing saved on A3 is really about 1:100 — check with a known dimension.",
+        )
+    fun actualPdfScale(ratio: Int) = t("Фактический масштаб PDF ≈ 1:$ratio", "Actual PDF scale ≈ 1:$ratio")
+    val correctScaleFromControl get() = t("Исправить масштаб по этому размеру", "Correct the scale from this dimension")
     val calibrationByLength get() = t("По известному расстоянию", "By a known distance")
     val calibrationByLengthHint
         get() = t(

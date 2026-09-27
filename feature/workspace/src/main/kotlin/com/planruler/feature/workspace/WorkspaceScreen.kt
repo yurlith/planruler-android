@@ -887,6 +887,7 @@ fun WorkspaceScreen(
                 0.0
             },
             pageWidth = page?.source?.width ?: 0.0,
+            pageHeight = page?.source?.height ?: 0.0,
             coordinateUnit = page?.source?.coordinateUnit,
             initialUnit = engine.displayUnit,
             calibration = engine.calibration,
@@ -925,6 +926,18 @@ fun WorkspaceScreen(
                 if (
                     calibrationPoints.size == 2 &&
                     viewModel.verifyCalibration(calibrationPoints[0], calibrationPoints[1], expected, unit)
+                ) {
+                    haptic(HapticFeedbackConstants.VIRTUAL_KEY)
+                    calibrationPoints = emptyList()
+                    overlay = null
+                    if (tool == WorkspaceTool.CALIBRATE) tool = WorkspaceTool.DISTANCE
+                }
+            },
+            onCorrectFromVerification = { expected, unit ->
+                // The control segment becomes the reference: the scale then matches it exactly.
+                if (
+                    calibrationPoints.size == 2 &&
+                    viewModel.calibrate(calibrationPoints[0], calibrationPoints[1], expected, unit, "")
                 ) {
                     haptic(HapticFeedbackConstants.VIRTUAL_KEY)
                     calibrationPoints = emptyList()

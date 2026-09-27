@@ -450,6 +450,7 @@ fun PlanCanvas(
                 density = density,
                 hiddenLayers = hiddenLayers,
                 visibleMeasurementIds = visibleMeasurementIds,
+                tiles = tileImages,
             )
         }
     }
@@ -472,6 +473,7 @@ private fun MeasurementMagnifier(
     density: Density,
     hiddenLayers: Set<LayerId>,
     visibleMeasurementIds: Set<MeasurementId>,
+    tiles: List<Pair<RenderedTile, ImageBitmap>>,
 ) {
     val sizePx = with(density) { windowSize.toPx() }
     val offsetPx = with(density) { windowOffset.toPx() }
@@ -518,7 +520,9 @@ private fun MeasurementMagnifier(
             valueOf = { "" },
             segmentsOf = { emptyList() },
             hiddenLayers = hiddenLayers,
-            tiles = emptyList(),
+            // The sharp viewport tiles, not only the capped page render: without them the
+            // magnified plan lines were a blur.
+            tiles = tiles,
             visibleMeasurementIds = visibleMeasurementIds,
             revisionOverlay = null,
             revisionOverlayBitmap = null,
@@ -526,9 +530,26 @@ private fun MeasurementMagnifier(
             revisionOverlayOpacity = 0f,
             editable = false,
         )
+        // Short reticle with an open centre: full-width crosshairs hid the very line being
+        // measured and were easy to mistake for plan geometry.
         val center = Offset(size.width / 2f, size.height / 2f)
-        drawLine(colors.selection, Offset(center.x, 0f), Offset(center.x, size.height), strokeWidth = 1.5f)
-        drawLine(colors.selection, Offset(0f, center.y), Offset(size.width, center.y), strokeWidth = 1.5f)
+        val gap = size.minDimension * 0.06f
+        val arm = size.minDimension * 0.16f
+        listOf(Offset(1f, 0f), Offset(-1f, 0f), Offset(0f, 1f), Offset(0f, -1f)).forEach { direction ->
+            drawLine(
+                Color.White,
+                center + direction * gap,
+                center + direction * (gap + arm),
+                strokeWidth = 4f,
+            )
+            drawLine(
+                colors.selection,
+                center + direction * gap,
+                center + direction * (gap + arm),
+                strokeWidth = 2f,
+            )
+        }
+        drawCircle(colors.selection, 2.5f, center)
         snapResult?.let {
             val point = magnifierTransform.documentToScreen(it.point).offset()
             drawCircle(colors.snapAccent, 11f, point, style = Stroke(3f))
