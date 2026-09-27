@@ -32,11 +32,11 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.planruler.app"
+        applicationId = "com.planruler.field"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10501
-        versionName = "1.5.1"
+        versionCode = 20000
+        versionName = "2.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
