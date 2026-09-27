@@ -8,6 +8,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -201,7 +202,7 @@ fun PlanRulerGradientHero(
         modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.large)
-            .background(Brush.linearGradient(listOf(scheme.primary, scheme.secondary)))
+            .background(Brush.linearGradient(heroColors(scheme)))
             .padding(Space.x5),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(Space.x3)) {
@@ -326,3 +327,14 @@ fun PlanRulerCompactToolCard(
         }
     }
 }
+
+/**
+ * Dark themes use pale accents; white text on them fails contrast, so the hero switches
+ * to the deep container tones there.
+ */
+private fun heroColors(scheme: androidx.compose.material3.ColorScheme): List<Color> =
+    if (scheme.background.luminance() < 0.5f) {
+        listOf(scheme.primaryContainer, scheme.secondaryContainer)
+    } else {
+        listOf(scheme.primary, scheme.secondary)
+    }

@@ -38,7 +38,7 @@ class ScreenGalleryTest {
             .putString("language", "RUSSIAN")
             .putStringSet("coach_seen", setOf("coach-zoom", "coach-calibration"))
             .commit()
-        context.filesDir.resolve("projects").deleteRecursively()
+        context.filesDir.resolve("projects").apply { deleteRecursively(); mkdirs() }
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
     }
