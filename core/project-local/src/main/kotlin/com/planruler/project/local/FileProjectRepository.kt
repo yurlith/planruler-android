@@ -46,6 +46,9 @@ class FileProjectRepository(
 
     override suspend fun save(project: PlanProject): ProjectResult<Unit> = try {
         val target = file(project.id)
+        // The folder is created at startup, but storage cleaners and "clear data" of a
+        // running process can remove it; every write must not depend on that.
+        directory.mkdirs()
         val temporary = File(directory, "${project.id.value}.tmp")
         val encoded = json.encodeToString(PlanProject.serializer(), project)
         temporary.writeText(encoded, Charsets.UTF_8)

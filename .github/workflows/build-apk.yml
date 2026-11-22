@@ -1,0 +1,59 @@
+name: Build test APK
+
+on:
+  push:
+    branches: ['claude/**']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Release build
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleRelease --stacktrace
+      - name: Unit and screenshot tests
+        id: tests
+        continue-on-error: true
+        run: ./gradlew test --continue --stacktrace
+      - name: Publish APK, screenshots and reports as prerelease
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="build-${GITHUB_RUN_NUMBER}"
+          files=()
+          if [ -f app/build/outputs/apk/release/app-release-unsigned.apk ]; then
+            cp app/build/outputs/apk/release/app-release-unsigned.apk "planruler-${tag}-unsigned.apk"
+            files+=("planruler-${tag}-unsigned.apk")
+          fi
+          if [ -d app/build/outputs/roborazzi ]; then
+            (cd app/build/outputs/roborazzi && zip -qr "$GITHUB_WORKSPACE/screenshots-${tag}.zip" .)
+            files+=("screenshots-${tag}.zip")
+          fi
+          reports=$(find . -path '*/build/reports/tests' -type d | head -50)
+          if [ -n "$reports" ]; then
+            zip -qr "test-reports-${tag}.zip" $reports
+            files+=("test-reports-${tag}.zip")
+          fi
+          gh release create "$tag" "${files[@]}" \
+            --prerelease --target "$GITHUB_SHA" \
+            --title "Test build ${GITHUB_RUN_NUMBER} (${GITHUB_REF_NAME})" \
+            --notes "Unsigned CI build of ${GITHUB_SHA}. Tests: ${{ steps.tests.outcome }}."
+      - name: Fail when tests failed
+        if: steps.tests.outcome != 'success'
+        run: exit 1

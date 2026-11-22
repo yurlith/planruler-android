@@ -104,6 +104,7 @@ fun CalibrationSheet(
     step: CalibrationStep,
     documentLength: Double,
     pageWidth: Double,
+    pageHeight: Double,
     coordinateUnit: PageMetadata.CoordinateUnit?,
     initialUnit: LengthUnit,
     calibration: Calibration?,
@@ -115,6 +116,7 @@ fun CalibrationSheet(
     onApplyRatio: (Double, Boolean, String) -> Unit,
     onPickVerification: () -> Unit,
     onApplyVerification: (Double, LengthUnit) -> Unit,
+    onCorrectFromVerification: (Double, LengthUnit) -> Unit,
     onSkipVerification: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -159,7 +161,13 @@ fun CalibrationSheet(
                     onRedraw = onPickPoints,
                     onApply = onApplyLength,
                 )
-                CalibrationStep.RATIO -> RatioCalibration(text, onApplyRatio)
+                CalibrationStep.RATIO -> RatioCalibration(
+                    text = text,
+                    sheet = sheetSize(pageWidth, pageHeight).takeIf {
+                        coordinateUnit == PageMetadata.CoordinateUnit.PDF_POINT
+                    },
+                    onApply = onApplyRatio,
+                )
                 CalibrationStep.VERIFY -> VerificationCalibration(
                     documentLength = documentLength,
                     calibration = calibration,
@@ -167,6 +175,8 @@ fun CalibrationSheet(
                     text = text,
                     onPickPoints = onPickVerification,
                     onApply = onApplyVerification,
+                    onCorrect = onCorrectFromVerification,
+                    pdfPoints = coordinateUnit == PageMetadata.CoordinateUnit.PDF_POINT,
                     onSkip = onSkipVerification,
                 )
             }
@@ -303,12 +313,21 @@ private fun LengthCalibration(
 }
 
 @Composable
-private fun RatioCalibration(text: Wt, onApply: (Double, Boolean, String) -> Unit) {
+private fun RatioCalibration(text: Wt, sheet: SheetSize?, onApply: (Double, Boolean, String) -> Unit) {
     var ratio by remember { mutableStateOf("50") }
     var sure by remember { mutableStateOf(true) }
     var calibratedBy by remember { mutableStateOf("") }
     val parsed = ratio.toDoubleOrNull()
     Column(Modifier.padding(horizontal = Space.x5), verticalArrangement = Arrangement.spacedBy(Space.x3)) {
+        sheet?.let {
+            // The printed ratio is only true on the paper it was drawn for.
+            Text(text.pdfSheetSize(it.label), style = MaterialTheme.typography.titleSmall)
+            Text(
+                text.pdfSheetHint,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
             Text("1 :", style = MaterialTheme.typography.titleMedium)
             OutlinedTextField(
@@ -363,6 +382,8 @@ private fun VerificationCalibration(
     text: Wt,
     onPickPoints: () -> Unit,
     onApply: (Double, LengthUnit) -> Unit,
+    onCorrect: (Double, LengthUnit) -> Unit,
+    pdfPoints: Boolean,
     onSkip: () -> Unit,
 ) {
     var expected by remember { mutableStateOf("") }
@@ -414,6 +435,21 @@ private fun VerificationCalibration(
                     style = MaterialTheme.typography.titleSmall,
                     color = if (it <= 1.0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                 )
+                if (it > 1.0 && parsed != null) {
+                    if (pdfPoints) {
+                        effectivePdfScale(documentLength, unit.toMeters(parsed))?.let { real ->
+                            Text(
+                                text.actualPdfScale(real.roundToInt()),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    Button(
+                        onClick = { onCorrect(parsed, unit) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { Text(text.correctScaleFromControl) }
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
                 OutlinedButton(onPickPoints) { Text(text.redrawPoints) }

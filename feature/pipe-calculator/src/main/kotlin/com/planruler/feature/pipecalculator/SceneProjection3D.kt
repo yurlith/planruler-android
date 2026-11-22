@@ -128,3 +128,51 @@ internal object DragProjection3D {
         return if (valueDeg < 0.0) -nearest else nearest
     }
 }
+
+internal data class SceneFit3D(val zoom: Float, val panX: Float, val panY: Float)
+
+/**
+ * Zoom and pan that put the whole assembly in the middle of the viewport, filling about
+ * [fill] of it. The mesh bounds are projected with the real camera; perspective scale is
+ * not linear in zoom, so the estimate is refined a few times.
+ */
+internal fun fitSceneCamera(
+    mesh: AssemblyMesh3D,
+    width: Float,
+    height: Float,
+    yawDeg: Float,
+    pitchDeg: Float,
+    perspective: Boolean,
+    fill: Float = 0.8f,
+    minZoom: Float = 0.2f,
+    maxZoom: Float = 12f,
+): SceneFit3D {
+    if (width <= 0f || height <= 0f) return SceneFit3D(1f, 0f, 0f)
+    val lo = mesh.bounds.minimum
+    val hi = mesh.bounds.maximum
+    val corners = listOf(
+        Vec3(lo.x, lo.y, lo.z), Vec3(hi.x, lo.y, lo.z), Vec3(lo.x, hi.y, lo.z), Vec3(hi.x, hi.y, lo.z),
+        Vec3(lo.x, lo.y, hi.z), Vec3(hi.x, lo.y, hi.z), Vec3(lo.x, hi.y, hi.z), Vec3(hi.x, hi.y, hi.z),
+    )
+    var zoom = 1f
+    var panX = 0f
+    var panY = 0f
+    repeat(4) {
+        val projector = SceneProjector3D(mesh, width, height, yawDeg, pitchDeg, zoom, perspective)
+        val points = corners.map { projector.project(it).screen }
+        val minX = points.minOf { it.x }
+        val maxX = points.maxOf { it.x }
+        val minY = points.minOf { it.y }
+        val maxY = points.maxOf { it.y }
+        val spanX = (maxX - minX).coerceAtLeast(1f)
+        val spanY = (maxY - minY).coerceAtLeast(1f)
+        val factor = min(width * fill / spanX, height * fill / spanY)
+        val next = (zoom * factor).coerceIn(minZoom, maxZoom)
+        val scale = next / zoom
+        zoom = next
+        // Centre the box: the projected centre moves with the zoom about the viewport middle.
+        panX = (width / 2f - (minX + maxX) / 2f) * scale
+        panY = (height / 2f - (minY + maxY) / 2f) * scale
+    }
+    return SceneFit3D(zoom, panX, panY)
+}

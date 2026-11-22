@@ -35,6 +35,14 @@ class FileProjectRepositoryTest {
         measurements = listOf(Measurement(MeasurementId("m1"), MeasurementType.DISTANCE, listOf(DocPoint(0.0, 0.0), DocPoint(72.0, 0.0)), createdAtEpochMs = 1)),
     )
 
+    @Test fun `save recreates a project folder removed while running`() = runBlocking {
+        val root = Files.createTempDirectory("planruler-test").toFile()
+        val repository = FileProjectRepository(root.resolve("projects"))
+        root.resolve("projects").deleteRecursively()
+        assertTrue(repository.save(project()) is ProjectResult.Ok)
+        assertTrue(repository.load(ProjectId("p1")) is ProjectResult.Ok)
+    }
+
     @Test fun `round trip preserves project geometry`() = runBlocking {
         val root = Files.createTempDirectory("planruler-test").toFile()
         val repository = FileProjectRepository(root)

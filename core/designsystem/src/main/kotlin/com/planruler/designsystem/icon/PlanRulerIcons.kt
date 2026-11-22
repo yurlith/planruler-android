@@ -233,6 +233,24 @@ object PlanRulerIcons {
         moveTo(4.5f, 12f); lineTo(19.5f, 12f)
     }
 
+    val Minus = stroked("Minus") { moveTo(4.5f, 12f); lineTo(19.5f, 12f) }
+
+    /** Four corner brackets: fit the whole sheet into the view. */
+    val FitPage = stroked("FitPage") {
+        moveTo(4.5f, 9f); lineTo(4.5f, 4.5f); lineTo(9f, 4.5f)
+        moveTo(15f, 4.5f); lineTo(19.5f, 4.5f); lineTo(19.5f, 9f)
+        moveTo(19.5f, 15f); lineTo(19.5f, 19.5f); lineTo(15f, 19.5f)
+        moveTo(9f, 19.5f); lineTo(4.5f, 19.5f); lineTo(4.5f, 15f)
+    }
+
+    /** Diagonal arrows: open in full screen. */
+    val Expand = stroked("Expand") {
+        moveTo(14f, 4.5f); lineTo(19.5f, 4.5f); lineTo(19.5f, 10f)
+        moveTo(19.5f, 4.5f); lineTo(13.5f, 10.5f)
+        moveTo(10f, 19.5f); lineTo(4.5f, 19.5f); lineTo(4.5f, 14f)
+        moveTo(4.5f, 19.5f); lineTo(10.5f, 13.5f)
+    }
+
     val Warning = stroked("Warning") {
         moveTo(12f, 3.5f); lineTo(21.5f, 20f); lineTo(2.5f, 20f); close()
         moveTo(12f, 9.5f); lineTo(12f, 14f)

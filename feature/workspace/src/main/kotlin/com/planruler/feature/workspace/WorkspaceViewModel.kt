@@ -117,7 +117,8 @@ class WorkspaceViewModel(
                     createdAtEpochMs = now,
                     modifiedAtEpochMs = now,
                     documentUri = uri,
-                    mimeType = mime.ifBlank { opened.value.mimeType },
+                    // The gateway sniffs the real type; the caller's hint is only a fallback.
+                    mimeType = opened.value.mimeType.takeUnless { it.isBlank() || it.endsWith("/*") } ?: mime,
                     pages = opened.value.pages,
                     displayUnit = settings.defaultUnit,
                     calibration = blankCalibration,
@@ -261,11 +262,6 @@ class WorkspaceViewModel(
         return true
     }
 
-    fun changePage(delta: Int) {
-        val project = ui.value.project ?: return
-        goToPage(project.selectedPage + delta)
-    }
-
     fun goToPage(index: Int) {
         val project = ui.value.project ?: return
         val target = index.coerceIn(0, project.pages.lastIndex)
@@ -298,42 +294,32 @@ class WorkspaceViewModel(
         }
         tileJob = viewModelScope.launch {
             delay(TILE_DEBOUNCE_MS)
-            val transform = ViewportTransform(canvasWidth.toDouble(), canvasHeight.toDouble(), viewport)
-            val topLeft = transform.screenToDocument(ScreenPoint(0.0, 0.0))
-            val bottomRight = transform.screenToDocument(
-                ScreenPoint(canvasWidth.toDouble(), canvasHeight.toDouble()),
-            )
-            // A stable power-of-two render scale makes adjacent pinch frames reuse the
-            // same tile boundaries and LRU-cache keys. It is never below display zoom.
-            val renderScale = quantizedRenderScale(viewport.zoom)
-            val step = TILE_PIXELS / renderScale
-            if (step <= 0.0 || !step.isFinite()) return@launch
-            val firstColumn = floor(max(0.0, topLeft.x) / step).toInt()
-            val lastColumn = floor(min(page.source.width, bottomRight.x) / step).toInt()
-            val firstRow = floor(max(0.0, topLeft.y) / step).toInt()
-            val lastRow = floor(min(page.source.height, bottomRight.y) / step).toInt()
-            if (lastColumn < firstColumn || lastRow < firstRow) return@launch
-
+            val plan = viewportTilePlan(
+                viewport = viewport,
+                canvasWidth = canvasWidth,
+                canvasHeight = canvasHeight,
+                pageWidth = page.source.width,
+                pageHeight = page.source.height,
+            ) ?: return@launch
+            // Earlier tiles stay underneath until their replacements arrive, so a pan or a
+            // zoom step never flashes the blurry page render.
+            val previous = ui.value.tiles
             val rendered = mutableListOf<RenderedTile>()
-            outer@ for (row in firstRow..lastRow) {
-                for (column in firstColumn..lastColumn) {
-                    if (rendered.size >= TILE_LIMIT) break@outer
-                    val result = gateway.renderTile(
-                        document.id,
-                        TileRequest(
-                            pageIndex = page.pageIndex,
-                            left = column * step,
-                            top = row * step,
-                            right = min((column + 1) * step, page.source.width),
-                            bottom = min((row + 1) * step, page.source.height),
-                            scale = renderScale,
-                        ),
-                    )
-                    if (result is DocumentResult.Ok) {
-                        rendered += result.value
-                        // Publish as they arrive: a partially sharpened page beats a blank wait.
-                        mutableUi.value = ui.value.copy(tiles = rendered.toList())
-                    }
+            plan.cells.forEach { cell ->
+                val result = gateway.renderTile(
+                    document.id,
+                    TileRequest(
+                        pageIndex = page.pageIndex,
+                        left = cell.left,
+                        top = cell.top,
+                        right = cell.right,
+                        bottom = cell.bottom,
+                        scale = plan.scale,
+                    ),
+                )
+                if (result is DocumentResult.Ok) {
+                    rendered += result.value
+                    mutableUi.value = ui.value.copy(tiles = previous + rendered)
                 }
             }
             mutableUi.value = ui.value.copy(tiles = rendered.toList())
@@ -448,7 +434,7 @@ class WorkspaceViewModel(
                 is DocumentResult.Ok -> mutableUi.value = ui.value.copy(
                     pendingRevision = PendingPageRevision(
                         documentUri = uri,
-                        mimeType = mimeType.ifBlank { sourceDocument.mimeType },
+                        mimeType = sourceDocument.mimeType.takeUnless { it.isBlank() || it.endsWith("/*") } ?: mimeType,
                         document = sourceDocument,
                         sourcePageIndex = 0,
                         renderedPage = rendered.value,
@@ -875,12 +861,12 @@ class WorkspaceViewModel(
         openDocuments.clear()
     }
 
-    private companion object {
+    internal companion object {
         const val THUMBNAIL_LIMIT = 24
-        const val TILE_PIXELS = 512.0
+        const val TILE_PIXELS = 1024.0
         const val TILE_LIMIT = 12
         const val TILE_DEBOUNCE_MS = 180L
         /** Below this the page render is already sharper than the screen asks for. */
-        const val TILE_TRIGGER = 1.2
+        const val TILE_TRIGGER = 1.0
     }
 }

@@ -20,6 +20,7 @@ dependencies {
     implementation(project(":core:crm-api"))
     implementation(project(":core:project-api"))
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.androidx.activity.compose)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)

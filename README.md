@@ -27,12 +27,15 @@ Offline-first Android-приложение для измерений по PDF, P
 - инспектор данных фото: EXIF-оптика, полный XMP/extended-XMP, GDepth и
   concatenated Dynamic Depth decoder, единая метрическая карта независимо от
   формата вложенного JPEG/PNG/WebP/HEIF-растра (в пределах кодеков устройства),
+- справочник труб: 10 таблиц suissetec [1.52–1.61] и 5 серий пресс-/PP-труб,
+  объём воды и масса для заданной длины, выбор трубы из таблицы в гидравлике;
 - монтажная мастерская на одном экране: фланцевое смещение, контур узла,
   автоматический подбор DN/PN, три длины реза, сварные зазоры, болтовой круг,
   масса и цветной график раскроя хлыстов,
   8/16-bit precision, confidence и локальная статистика camera profile по median/MAD;
 - многостраничный PDF, адаптивный рендер и LRU-cache;
-- zoom/pan в отдельной системе координат viewport;
+- zoom/pan в отдельной системе координат viewport: pinch, колесо мыши, кнопки
+  + / − / «вписать страницу», двойной тап; план открывается в режиме «Рука»;
 - ручная калибровка и масштабы PDF 1:20, 1:50, 1:100;
 - длина, полилиния, площадь/периметр, угол, аннотация, счётчик;
 - undo/redo, автосохранение, атомарный JSON и backup;
@@ -76,11 +79,15 @@ java '-Dfile.encoding=UTF-8' -classpath .\gradle\wrapper\gradle-wrapper.jar org.
 Нужны JDK 17+ и Android SDK 36. Release AAB/APK подписываются локальным Play upload key
 из игнорируемого `keystore.properties`; ключи и пароли не хранятся в репозитории.
 
-Статус: `1.5.1`, публичный open-source release. Предварительные HVAC-расчёты
-не являются заявлением соответствия SIA/DIN: нормативные профили заблокированы
-до сверки по лицензированным текстам и подписанным контрольным примерам.
-Актуальные проверки и ограничения описаны в `docs/TEST_REPORT.md` и
-`docs/LOCAL_HVAC_CRM_IMPLEMENTATION_2026-08-14.md`.
+Статус: `2.0.0` (пакет `com.planruler.field`, ставится рядом со старым
+`com.planruler.app`). Предварительные HVAC-расчёты не являются заявлением
+соответствия SIA/DIN: нормативные профили заблокированы до сверки по
+лицензированным текстам и подписанным контрольным примерам. Ограничения описаны
+в `docs/KNOWN_LIMITATIONS.md`, источники таблиц труб — в
+`docs/PIPE_CATALOG_SOURCES.md`.
+
+CI: `.github/workflows/build-apk.yml` на каждой ветке `claude/**` запускает
+unit-тесты, собирает неподписанный release APK и публикует его как pre-release.
 
 ## Open-source and F-Droid build
 
@@ -98,16 +105,6 @@ signing can be built with JDK 17 and Android SDK 36:
 
 Upstream store metadata is under `fastlane/metadata/android/en-US/`. The
 proposed official F-Droid build recipe and RFP text are under `fdroid/`.
-# Hardening snapshot (2026-07-25)
-
-Current quality status: **Prototype — final RC verification pending**.
-
-Real SAF E2E, process-death restoration, separate PDF/JPEG/corrupt journeys,
-independent export validation and measured stress tests run on API 26 and API
-35. Human field/external-viewer acceptance remains. See
-`docs/RC_HARDENING_REPORT.md`, `docs/DEVICE_TEST_MATRIX.md`, and
-`docs/KNOWN_LIMITATIONS.md` for the evidence and remaining RC blockers.
-
 # UI/UX specification
 
 `docs/UX_SCREEN_MAP.md` — граф экранов, анатомия каждого экрана, состояния,

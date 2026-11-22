@@ -23,7 +23,6 @@ data class DocPoint(val x: Double, val y: Double) {
 }
 
 data class ScreenPoint(val x: Double, val y: Double)
-data class ViewportPoint(val x: Double, val y: Double)
 
 @Serializable
 data class ViewportState(
@@ -46,8 +45,8 @@ data class ViewportTransform(
     val viewportWidth: Double,
     val viewportHeight: Double,
     val state: ViewportState,
-    val minZoom: Double = 0.1,
-    val maxZoom: Double = 32.0,
+    val minZoom: Double = 0.01,
+    val maxZoom: Double = 64.0,
 ) {
     private val zoom = state.zoom.coerceIn(minZoom, maxZoom)
     fun screenToDocument(point: ScreenPoint) = DocPoint(

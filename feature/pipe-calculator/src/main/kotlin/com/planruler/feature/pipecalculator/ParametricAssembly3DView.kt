@@ -1,10 +1,20 @@
 ﻿package com.planruler.feature.pipecalculator
 
 import android.graphics.Paint
+import android.os.Build
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import com.planruler.designsystem.component.PlanRulerIconButton
+import com.planruler.designsystem.icon.PlanRulerIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculateCentroid
 import androidx.compose.foundation.gestures.calculateCentroidSize
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
@@ -26,6 +36,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Button
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.FilterChip
@@ -33,6 +44,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -76,7 +88,6 @@ import com.planruler.fabrication3d.MeshMaterial3D
 import com.planruler.fabrication3d.MeshTriangle3D
 import com.planruler.fabrication3d.ParametricAssembly3D
 import com.planruler.fabrication3d.PartInstance3D
-import com.planruler.fabrication3d.Quaternion
 import com.planruler.fabrication3d.StraightPipeGeometry3D
 import com.planruler.fabrication3d.Vec3
 import com.planruler.fabrication3d.WeldNeckFlangeGeometry3D
@@ -86,7 +97,6 @@ import com.planruler.model.AppLanguage
 import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.max
-import kotlin.math.min
 import kotlin.math.sqrt
 import kotlin.math.roundToInt
 
@@ -97,6 +107,50 @@ internal enum class ViewPreset3D(val yaw: Float, val pitch: Float) {
     RIGHT(88f, 0f),
 }
 
+/**
+ * Camera shared between the inline card and its full-screen dialog, so switching
+ * modes keeps the exact view the fitter was looking at.
+ */
+internal class SceneCamera3D(
+    yaw: Float = ViewPreset3D.ISOMETRIC.yaw,
+    pitch: Float = ViewPreset3D.ISOMETRIC.pitch,
+    zoom: Float = DEFAULT_SCENE_ZOOM,
+    panX: Float = 0f,
+    panY: Float = 0f,
+    perspective: Boolean = true,
+) {
+    var yaw by mutableFloatStateOf(yaw)
+    var pitch by mutableFloatStateOf(pitch)
+    var zoom by mutableFloatStateOf(zoom)
+    var panX by mutableFloatStateOf(panX)
+    var panY by mutableFloatStateOf(panY)
+    var perspective by mutableStateOf(perspective)
+
+    companion object {
+        val Saver = listSaver<SceneCamera3D, Any>(
+            save = { listOf(it.yaw, it.pitch, it.zoom, it.panX, it.panY, it.perspective) },
+            restore = {
+                SceneCamera3D(
+                    it[0] as Float,
+                    it[1] as Float,
+                    it[2] as Float,
+                    it[3] as Float,
+                    it[4] as Float,
+                    it[5] as Boolean,
+                )
+            },
+        )
+    }
+}
+
+internal const val DEFAULT_SCENE_ZOOM = 1.15f
+internal const val MIN_SCENE_ZOOM = 0.2f
+internal const val MAX_SCENE_ZOOM = 12f
+
+@Composable
+internal fun rememberSceneCamera3D(): SceneCamera3D =
+    rememberSaveable(saver = SceneCamera3D.Saver) { SceneCamera3D() }
+
 @Composable
 internal fun Assembly3DViewerCard(
     assembly: ParametricAssembly3D,
@@ -104,6 +158,7 @@ internal fun Assembly3DViewerCard(
     /** Null while the engine is still tessellating, or when the scene exceeds its quota. */
     mesh: AssemblyMesh3D?,
     dimensionTarget: Vec3?,
+    meshBuilding: Boolean = false,
     selectedPartId: String? = null,
     onSelectPart: (String) -> Unit = {},
     editor: ChainEditorState3D? = null,
@@ -113,15 +168,23 @@ internal fun Assembly3DViewerCard(
     onCancelPreview: () -> Unit = {},
     onSceneAdd: () -> Unit = {},
     onSceneRemove: () -> Unit = {},
+    camera: SceneCamera3D = rememberSceneCamera3D(),
+    fullScreen: Boolean = false,
+    onExitFullScreen: () -> Unit = {},
+    /** Scene only, filling its parent: used by the full-screen workbench. */
+    bare: Boolean = false,
+    /** Replaces the viewer-only full-screen dialog, e.g. with the editing workbench. */
+    onRequestFullScreen: (() -> Unit)? = null,
 ) {
     val text = remember(language) { Model3DText(language) }
     val palette = LocalScenePalette.current
-    var yaw by rememberSaveable { mutableFloatStateOf(ViewPreset3D.ISOMETRIC.yaw) }
-    var pitch by rememberSaveable { mutableFloatStateOf(ViewPreset3D.ISOMETRIC.pitch) }
-    var zoom by rememberSaveable { mutableFloatStateOf(1.15f) }
-    var panX by rememberSaveable { mutableFloatStateOf(0f) }
-    var panY by rememberSaveable { mutableFloatStateOf(0f) }
-    var perspective by rememberSaveable { mutableStateOf(true) }
+    var yaw by camera::yaw
+    var pitch by camera::pitch
+    var zoom by camera::zoom
+    var panX by camera::panX
+    var panY by camera::panY
+    var perspective by camera::perspective
+    var showFullScreen by remember { mutableStateOf(false) }
     var localSelection by remember(assembly) {
         mutableStateOf(assembly.parts.firstOrNull { it.id == "P2" }?.id ?: assembly.parts.firstOrNull()?.id)
     }
@@ -133,15 +196,101 @@ internal fun Assembly3DViewerCard(
 
     if (mesh == null) {
         ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(28.dp)) {
-            Text(
-                text.meshUnavailable,
-                Modifier.fillMaxWidth().padding(16.dp).testTag(PipeCalculatorTags.Assembly3DCanvas),
-                fontWeight = FontWeight.Bold,
-            )
+            if (meshBuilding) {
+                Row(
+                    Modifier.fillMaxWidth().height(160.dp).padding(16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 3.dp)
+                    Text(text.meshBuilding, Modifier.padding(start = 12.dp), fontWeight = FontWeight.Bold)
+                }
+            } else {
+                Text(
+                    text.meshUnavailable,
+                    Modifier.fillMaxWidth().padding(16.dp).testTag(PipeCalculatorTags.Assembly3DCanvas),
+                    fontWeight = FontWeight.Bold,
+                )
+            }
         }
         return
     }
 
+    if (showFullScreen && !fullScreen) {
+        Dialog(
+            onDismissRequest = { showFullScreen = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(8.dp)) {
+                    Assembly3DViewerCard(
+                        assembly = assembly,
+                        language = language,
+                        mesh = mesh,
+                        dimensionTarget = dimensionTarget,
+                        selectedPartId = activeSelection,
+                        onSelectPart = { localSelection = it; onSelectPart(it) },
+                        editor = editor,
+                        canAddAtOpenEnd = canAddAtOpenEnd,
+                        onPreview = onPreview,
+                        onCommitPreview = onCommitPreview,
+                        onCancelPreview = onCancelPreview,
+                        onSceneAdd = onSceneAdd,
+                        onSceneRemove = onSceneRemove,
+                        camera = camera,
+                        fullScreen = true,
+                        onExitFullScreen = { showFullScreen = false },
+                    )
+                }
+            }
+        }
+    }
+
+    fun zoomBy(factor: Float) {
+        val next = applySceneGesture3D(
+            SceneCameraGestureState3D(yaw, pitch, zoom, panX, panY),
+            pointerCount = 2,
+            pan = Offset.Zero,
+            zoomChange = factor,
+        )
+        zoom = next.zoom
+        panX = next.panX
+        panY = next.panY
+    }
+
+    fun fitView() {
+        if (viewportSize.width <= 0 || viewportSize.height <= 0) return
+        val fit = fitSceneCamera(
+            mesh,
+            viewportSize.width.toFloat(),
+            viewportSize.height.toFloat(),
+            yaw,
+            pitch,
+            perspective,
+            minZoom = MIN_SCENE_ZOOM,
+            maxZoom = MAX_SCENE_ZOOM,
+        )
+        zoom = fit.zoom
+        panX = fit.panX
+        panY = fit.panY
+    }
+
+    // Frame the model once it and the viewport exist; later edits keep the user's camera.
+    var framed by remember { mutableStateOf(false) }
+    LaunchedEffect(viewportSize) {
+        if (!framed && viewportSize.width > 0 && viewportSize.height > 0) {
+            fitView()
+            framed = true
+        }
+    }
+
+    val sceneHeight = if (fullScreen) {
+        (LocalConfiguration.current.screenHeightDp.dp - 240.dp).coerceAtLeast(360.dp)
+    } else {
+        460.dp
+    }
+
+    val smoothNormals = remember(mesh) { SmoothNormals3D(mesh) }
     val projector = remember(mesh, viewportSize, yaw, pitch, zoom, perspective, panX, panY) {
         viewportSize.takeIf { it.width > 0 && it.height > 0 }?.let {
             SceneProjector3D(
@@ -163,20 +312,7 @@ internal fun Assembly3DViewerCard(
     val directValue = liveDirectValue ?: directHandles.joinToString(" · ") { it.valueLabel }
     val canRemoveFromScene = editor?.pathForPart(activeSelection.orEmpty()) != null
 
-    ElevatedCard(
-        Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(text.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-                Text(
-                    text.subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+    val presetRow: @Composable () -> Unit = {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 items(ViewPreset3D.entries) { preset ->
                     FilterChip(
@@ -184,9 +320,7 @@ internal fun Assembly3DViewerCard(
                         onClick = {
                             yaw = preset.yaw
                             pitch = preset.pitch
-                            zoom = 1.15f
-                            panX = 0f
-                            panY = 0f
+                            fitView()
                         },
                         label = { Text(text.preset(preset)) },
                     )
@@ -199,12 +333,12 @@ internal fun Assembly3DViewerCard(
                     )
                 }
             }
-            val sceneDescription = "${text.title}. ${assembly.parts.size} ${text.parts}, " +
-                "${assembly.connections.size} ${text.welds}. ${text.gestureHint}"
+    }
+    val sceneDescription = "${text.title}. ${assembly.parts.size} ${text.parts}, " +
+        "${assembly.connections.size} ${text.welds}. ${text.gestureHint}"
+    val scene: @Composable (Modifier) -> Unit = { sceneModifier ->
             Box(
-                Modifier
-                    .fillMaxWidth()
-                    .height(460.dp)
+                sceneModifier
                     .background(palette.backdropTop, RoundedCornerShape(20.dp))
                     .onSizeChanged { viewportSize = it },
             ) {
@@ -215,12 +349,13 @@ internal fun Assembly3DViewerCard(
                         .semantics { contentDescription = sceneDescription }
                         .pointerInput(mesh) {
                             // A handle is a child hit target and wins. Everywhere else one finger orbits.
-                            detectSceneGestures3D { pointerCount, pan, gestureZoom ->
+                            detectSceneGestures3D { pointerCount, pan, gestureZoom, centroid ->
                                 val next = applySceneGesture3D(
                                     SceneCameraGestureState3D(yaw, pitch, zoom, panX, panY),
                                     pointerCount,
                                     pan,
                                     gestureZoom,
+                                    focus = centroid - Offset(size.width / 2f, size.height / 2f),
                                 )
                                 yaw = next.yaw
                                 pitch = next.pitch
@@ -254,6 +389,7 @@ internal fun Assembly3DViewerCard(
                     )
                     drawAssemblyScene3D(
                         mesh = mesh,
+                        normals = smoothNormals,
                         projector = sceneProjector,
                         selectedPartId = activeSelection,
                         dimensionTarget = dimensionTarget,
@@ -261,6 +397,26 @@ internal fun Assembly3DViewerCard(
                         heightLabel = text.offset,
                         palette = palette,
                     )
+                }
+
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                    shape = RoundedCornerShape(18.dp),
+                    shadowElevation = 3.dp,
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 6.dp),
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        PlanRulerIconButton(PlanRulerIcons.Plus, text.zoomIn, { zoomBy(1.4f) })
+                        PlanRulerIconButton(PlanRulerIcons.Minus, text.zoomOut, { zoomBy(1f / 1.4f) })
+                        PlanRulerIconButton(PlanRulerIcons.FitPage, text.resetView, { fitView() })
+                        if (fullScreen) {
+                            PlanRulerIconButton(PlanRulerIcons.Close, text.exitFullScreen, onExitFullScreen)
+                        } else {
+                            PlanRulerIconButton(PlanRulerIcons.Expand, text.fullScreen, {
+                                onRequestFullScreen?.invoke() ?: run { showFullScreen = true }
+                            })
+                        }
+                    }
                 }
 
                 if (editor != null) {
@@ -354,6 +510,55 @@ internal fun Assembly3DViewerCard(
                     }
                 }
             }
+    }
+
+    if (bare) {
+        // Workbench: the scene is the whole screen, view presets float over it.
+        Box(Modifier.fillMaxSize()) {
+            scene(Modifier.fillMaxSize())
+            Surface(
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.align(Alignment.TopStart).padding(8.dp).fillMaxWidth(0.82f),
+            ) {
+                Box(Modifier.padding(horizontal = 6.dp)) { presetRow() }
+            }
+            selectedPart?.let { part ->
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 52.dp)
+                        .testTag(PipeCalculatorTags.Assembly3DSelection),
+                ) {
+                    Text(
+                        "${part.code} · ${text.partKind(part.definition.kind)} · ${partDimensions(part)}",
+                        Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = palette.selection,
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    ElevatedCard(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(text.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+                Text(
+                    text.subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            presetRow()
+            scene(Modifier.fillMaxWidth().height(sceneHeight))
             selectedPart?.let { part ->
                 Surface(
                     shape = RoundedCornerShape(18.dp),
@@ -402,18 +607,25 @@ internal data class SceneCameraGestureState3D(
     val panY: Float,
 )
 
-/** One finger orbits; once a second finger joins, the whole gesture pans and zooms. */
+/**
+ * One finger orbits; once a second finger joins, the whole gesture pans and zooms.
+ * [focus] is the pinch centre relative to the viewport centre: the model point under
+ * the fingers stays under them instead of the zoom always pulling to the middle.
+ */
 internal fun applySceneGesture3D(
     state: SceneCameraGestureState3D,
     pointerCount: Int,
     pan: Offset,
     zoomChange: Float,
+    focus: Offset = Offset.Zero,
 ): SceneCameraGestureState3D = if (pointerCount >= 2) {
     val safeZoom = zoomChange.takeIf { it.isFinite() && it > 0f } ?: 1f
+    val nextZoom = (state.zoom * safeZoom).coerceIn(MIN_SCENE_ZOOM, MAX_SCENE_ZOOM)
+    val scale = nextZoom / state.zoom
     state.copy(
-        zoom = (state.zoom * safeZoom).coerceIn(0.35f, 8.0f),
-        panX = state.panX + pan.x,
-        panY = state.panY + pan.y,
+        zoom = nextZoom,
+        panX = focus.x - (focus.x - state.panX) * scale + pan.x,
+        panY = focus.y - (focus.y - state.panY) * scale + pan.y,
     )
 } else {
     state.copy(
@@ -554,17 +766,9 @@ private fun SceneLegend(color: Color, label: String) {
     }
 }
 
-private data class ProjectedTriangle3D(
-    val source: MeshTriangle3D,
-    val a: Offset,
-    val b: Offset,
-    val c: Offset,
-    val depth: Double,
-    val shade: Float,
-)
-
 private fun DrawScope.drawAssemblyScene3D(
     mesh: AssemblyMesh3D,
+    normals: SmoothNormals3D,
     projector: SceneProjector3D,
     selectedPartId: String?,
     dimensionTarget: Vec3?,
@@ -580,49 +784,8 @@ private fun DrawScope.drawAssemblyScene3D(
     )
     drawEngineeringGrid(mesh, projector, palette)
 
-    val light = Vec3(-0.25, -0.35, 1.0).normalized()
-    val triangles = mesh.triangles.mapNotNull { triangle ->
-        val a = projector.project(triangle.a)
-        val b = projector.project(triangle.b)
-        val c = projector.project(triangle.c)
-        if (!a.visible || !b.visible || !c.visible) return@mapNotNull null
-        val normal = projector.rotateDirection(triangle.normal)
-        ProjectedTriangle3D(
-            source = triangle,
-            a = a.screen,
-            b = b.screen,
-            c = c.screen,
-            depth = (a.depth + b.depth + c.depth) / 3.0,
-            // The ambient floor comes from the theme: a face that shades to black reads as
-            // a hole on a pale backdrop and vanishes on a dark one.
-            shade = (palette.shadeFloor + (1f - palette.shadeFloor) * abs(normal.dot(light))).toFloat(),
-        )
-    }.sortedBy { it.depth }
-
-    triangles.forEach { triangle ->
-        val selected = triangle.source.partId == selectedPartId
-        val base = if (selected) palette.selection else materialColor(triangle.source.material, palette)
-        val path = Path().apply {
-            moveTo(triangle.a.x, triangle.a.y)
-            lineTo(triangle.b.x, triangle.b.y)
-            lineTo(triangle.c.x, triangle.c.y)
-            close()
-        }
-        drawPath(path, base.adjustBrightness(triangle.shade))
-        when {
-            selected -> drawPath(
-                path,
-                palette.selection.copy(alpha = 0.28f),
-                style = Stroke(palette.outlineWidth),
-            )
-            // Glare and low-vision themes carry shape in the outline, not in the fill.
-            palette.outlineEveryPart -> drawPath(
-                path,
-                palette.onScene.copy(alpha = 0.22f),
-                style = Stroke(palette.outlineWidth),
-            )
-        }
-    }
+    drawGroundShadow(mesh, projector, palette)
+    drawShadedMesh(mesh, normals, projector, selectedPartId, palette)
 
     mesh.polylines.forEach { polyline ->
         val projected = polyline.points.map(projector::project).filter { it.visible }
@@ -638,6 +801,127 @@ private fun DrawScope.drawAssemblyScene3D(
     dimensionTarget?.let { drawSceneDimensions(projector, mesh, it, overallLabel, heightLabel, palette) }
     drawPartLabels(mesh, projector, selectedPartId, palette)
     drawAxisTriad(projector, palette)
+}
+
+/**
+ * Smooth-shaded solid: one vertex-coloured triangle batch, far to near. One draw call
+ * instead of a Path per triangle is several times faster and leaves no anti-aliasing
+ * seams between neighbouring triangles. Glare themes and pre-Q hardware canvases, which
+ * cannot draw vertices, keep per-triangle paths with outlines.
+ */
+private fun DrawScope.drawShadedMesh(
+    mesh: AssemblyMesh3D,
+    normals: SmoothNormals3D,
+    projector: SceneProjector3D,
+    selectedPartId: String?,
+    palette: PlanRulerScenePalette,
+) {
+    val triangles = mesh.triangles
+    val count = triangles.size
+    val xs = FloatArray(count * 3)
+    val ys = FloatArray(count * 3)
+    val depth = DoubleArray(count)
+    val visible = ArrayList<Int>(count)
+    triangles.forEachIndexed { index, triangle ->
+        val a = projector.project(triangle.a)
+        val b = projector.project(triangle.b)
+        val c = projector.project(triangle.c)
+        if (a.visible && b.visible && c.visible) {
+            xs[index * 3] = a.screen.x; ys[index * 3] = a.screen.y
+            xs[index * 3 + 1] = b.screen.x; ys[index * 3 + 1] = b.screen.y
+            xs[index * 3 + 2] = c.screen.x; ys[index * 3 + 2] = c.screen.y
+            depth[index] = (a.depth + b.depth + c.depth) / 3.0
+            visible += index
+        }
+    }
+    // The bore always lies inside its own wall, but long thin wall and bore triangles have
+    // almost the same centroid depth and interleave into stripes. Painting every bore first
+    // lets the outer surfaces cover it; it still shows through open pipe ends.
+    val order = visible.sortedWith(
+        compareBy<Int>({ triangles[it].material != MeshMaterial3D.INNER_BORE }, { depth[it] }),
+    )
+    val colors = IntArray(order.size * 3)
+    order.forEachIndexed { slot, index ->
+        val triangle = triangles[index]
+        val base = if (triangle.partId == selectedPartId) palette.selection else materialColor(triangle.material, palette)
+        repeat(3) { corner ->
+            val light = SceneLighting3D.shade(projector.rotateDirection(normals.normal(index, corner)), palette.shadeFloor)
+            colors[slot * 3 + corner] = Color(
+                red = litChannel(base.red, light),
+                green = litChannel(base.green, light),
+                blue = litChannel(base.blue, light),
+                alpha = base.alpha,
+            ).toArgb()
+        }
+    }
+
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !palette.outlineEveryPart) {
+        val vertices = FloatArray(order.size * 6)
+        order.forEachIndexed { slot, index ->
+            repeat(3) { corner ->
+                vertices[slot * 6 + corner * 2] = xs[index * 3 + corner]
+                vertices[slot * 6 + corner * 2 + 1] = ys[index * 3 + corner]
+            }
+        }
+        drawIntoCanvas { canvas ->
+            canvas.nativeCanvas.drawVertices(
+                android.graphics.Canvas.VertexMode.TRIANGLES,
+                vertices.size,
+                vertices,
+                0,
+                null,
+                0,
+                colors,
+                0,
+                null,
+                0,
+                0,
+                Paint(),
+            )
+        }
+    } else {
+        val path = Path()
+        order.forEachIndexed { slot, index ->
+            path.reset()
+            path.moveTo(xs[index * 3], ys[index * 3])
+            path.lineTo(xs[index * 3 + 1], ys[index * 3 + 1])
+            path.lineTo(xs[index * 3 + 2], ys[index * 3 + 2])
+            path.close()
+            drawPath(path, Color(colors[slot * 3 + 1]))
+            if (palette.outlineEveryPart) {
+                drawPath(path, palette.onScene.copy(alpha = 0.22f), style = Stroke(palette.outlineWidth))
+            }
+        }
+    }
+}
+
+/** A soft contact shadow on the floor grid anchors the model in space. */
+private fun DrawScope.drawGroundShadow(
+    mesh: AssemblyMesh3D,
+    projector: SceneProjector3D,
+    palette: PlanRulerScenePalette,
+) {
+    val bounds = mesh.bounds
+    val center = bounds.center
+    val floorZ = bounds.minimum.z - bounds.size.z * 0.12
+    val rx = (bounds.size.x / 2.0).coerceAtLeast(bounds.radius * 0.25) * 1.08
+    val ry = (bounds.size.y / 2.0).coerceAtLeast(bounds.radius * 0.25) * 1.08
+    listOf(0.9f to 0.035f, 0.7f to 0.04f, 0.5f to 0.045f).forEach { (scale, alpha) ->
+        val points = (0 until 36).map { step ->
+            val angle = step * 2.0 * Math.PI / 36.0
+            projector.project(
+                Vec3(center.x + rx * scale * kotlin.math.cos(angle), center.y + ry * scale * kotlin.math.sin(angle), floorZ),
+            )
+        }
+        if (points.all { it.visible }) {
+            val path = Path().apply {
+                moveTo(points.first().screen.x, points.first().screen.y)
+                points.drop(1).forEach { lineTo(it.screen.x, it.screen.y) }
+                close()
+            }
+            drawPath(path, Color.Black.copy(alpha = alpha))
+        }
+    }
 }
 
 private fun DrawScope.drawEngineeringGrid(
@@ -833,13 +1117,6 @@ private fun materialColorForPart(partId: String, palette: PlanRulerScenePalette)
     else -> palette.pipe
 }
 
-private fun Color.adjustBrightness(factor: Float): Color = Color(
-    red = (red * factor).coerceIn(0f, 1f),
-    green = (green * factor).coerceIn(0f, 1f),
-    blue = (blue * factor).coerceIn(0f, 1f),
-    alpha = alpha,
-)
-
 private fun partDimensions(part: PartInstance3D): String = when (val geometry = part.definition.geometry) {
     is StraightPipeGeometry3D -> "L ${sceneNumber(geometry.lengthMm)} mm"
     is ElbowGeometry3D -> "${sceneNumber(abs(geometry.angleDeg))}° · R ${sceneNumber(geometry.centerlineRadiusMm)}"
@@ -859,7 +1136,7 @@ private fun scenePaint(color: Color, sizePx: Float, bold: Boolean = false) = Pai
  * two-finger pan look exactly like a one-finger drag and orbit the model instead.
  */
 private suspend fun PointerInputScope.detectSceneGestures3D(
-    onGesture: (pointerCount: Int, pan: Offset, zoom: Float) -> Unit,
+    onGesture: (pointerCount: Int, pan: Offset, zoom: Float, centroid: Offset) -> Unit,
 ) {
     awaitEachGesture {
         awaitFirstDown(requireUnconsumed = false)
@@ -887,7 +1164,7 @@ private suspend fun PointerInputScope.detectSceneGestures3D(
                 pastTouchSlop = max(panMotion, zoomMotion) > viewConfiguration.touchSlop
             }
             if (pastTouchSlop) {
-                onGesture(gesturePointerCount, panChange, zoomChange)
+                onGesture(gesturePointerCount, panChange, zoomChange, event.calculateCentroid(useCurrent = true))
                 event.changes.forEach { change ->
                     if (change.positionChanged()) change.consume()
                 }
@@ -927,6 +1204,12 @@ private class Model3DText(private val language: AppLanguage) {
         "Один палец вращает; два — сдвигают и масштабируют. Нажмите на деталь.",
     )
     val gestureHint get() = subtitle
+    val meshBuilding get() = t("Buduję model 3D…", "Building the 3D model…", "3D-Modell wird erstellt…", "Création du modèle 3D…", "Creazione del modello 3D…", "Строим 3D-модель…")
+    val zoomIn get() = t("Powiększ", "Zoom in", "Vergrößern", "Zoom avant", "Ingrandisci", "Увеличить")
+    val zoomOut get() = t("Pomniejsz", "Zoom out", "Verkleinern", "Zoom arrière", "Riduci", "Уменьшить")
+    val resetView get() = t("Dopasuj widok", "Fit view", "Ansicht einpassen", "Ajuster la vue", "Adatta vista", "Вписать модель")
+    val fullScreen get() = t("Pełny ekran", "Full screen", "Vollbild", "Plein écran", "Schermo intero", "Во весь экран")
+    val exitFullScreen get() = t("Zamknij pełny ekran", "Exit full screen", "Vollbild beenden", "Quitter le plein écran", "Esci da schermo intero", "Выйти из полноэкранного режима")
     val perspective get() = t("Perspektywa", "Perspective", "Perspektive", "Perspective", "Prospettiva", "Перспектива")
     val orthographic get() = t("Ortograficzny", "Orthographic", "Orthografisch", "Orthographique", "Ortografica", "Ортографический")
     val selected get() = t("Wybrano", "Selected", "Ausgewählt", "Sélection", "Selezionato", "Выбрано")

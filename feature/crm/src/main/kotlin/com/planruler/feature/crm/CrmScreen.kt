@@ -1,5 +1,6 @@
 package com.planruler.feature.crm
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -41,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -54,7 +54,6 @@ import com.planruler.crm.api.LocalProfileId
 import com.planruler.crm.api.WorkOrder
 import com.planruler.crm.api.WorkOrderId
 import com.planruler.crm.api.WorkOrderStage
-import com.planruler.designsystem.component.EmptyState
 import com.planruler.designsystem.component.IndicatorChip
 import com.planruler.designsystem.component.IndicatorStatus
 import com.planruler.designsystem.icon.PlanRulerIcons
@@ -89,7 +88,6 @@ object CrmTags {
     const val ShowArchived = "crm_show_archived"
     const val ConfirmDelete = "crm_confirm_delete"
     const val DeleteProfile = "crm_delete_profile"
-    const val ProjectPicker = "crm_project_picker"
     fun profile(id: String) = "crm_profile:$id"
     fun deleteClient(id: String) = "crm_delete_client:$id"
     fun unarchiveClient(id: String) = "crm_unarchive_client:$id"
@@ -138,6 +136,13 @@ fun CrmScreen(
     LaunchedEffect(activeProfile?.id, showArchived) { activeProfile?.let { refreshWorkspace(it) } }
     LaunchedEffect(projects) {
         takeoffProjects = (projects?.list() as? ProjectResult.Ok)?.value.orEmpty()
+    }
+
+    // Back from an unlocked profile locks it again instead of leaving the app.
+    BackHandler(enabled = activeProfile != null) {
+        activeProfile = null
+        clients = emptyList()
+        workOrders = emptyList()
     }
 
     if (activeProfile == null) {

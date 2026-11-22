@@ -214,19 +214,6 @@ private fun FlangedOffsetAssemblyResult.assemble(
     )
 }
 
-/** Fails with a typed error instead of throwing when the 2D result cannot be lifted. */
-fun FlangedOffsetAssemblyResult.toValidatedAssembly3D(
-    parts: PartFactory3D,
-    validate: (ParametricAssembly3D) -> List<com.planruler.fabrication3d.AssemblyIssue3D>,
-): Fabrication3DResult<ParametricAssembly3D> = toParametricAssembly3D(parts).flatMap { assembly ->
-    val issues = validate(assembly)
-    if (issues.isEmpty()) {
-        Fabrication3DResult.Ok(assembly)
-    } else {
-        Fabrication3DResult.Failure(Fabrication3DError.AssemblyInvalid(issues))
-    }
-}
-
 private fun FlangedOffsetAssemblyResult.element(code: String): FabricationElement =
     elements.single { it.code == code }
 
