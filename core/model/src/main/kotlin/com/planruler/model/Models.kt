@@ -311,6 +311,8 @@ data class Measurement(
     val reviewStatus: MeasurementReviewStatus = MeasurementReviewStatus.VERIFIED,
     val sourceMeasurementId: MeasurementId? = null,
     val reviewedAtEpochMs: Long? = null,
+    /** Pipe risers and drops that a plan cannot show; absent for ordinary measurements. */
+    val route: PipeRoute? = null,
 )
 
 @Serializable
@@ -606,8 +608,11 @@ data class PlanProject(
     val pageRevisions: List<PageRevision> = emptyList(),
     val installationJobs: List<InstallationJob> = emptyList(),
     val activeInstallationJobId: InstallationJobId? = null,
+    /** Pipe isometrics drawn by hand or generated from the measured plan. Added in schema 10. */
+    val isometrics: List<IsometricSheet> = emptyList(),
+    val activeIsometricId: IsometricSheetId? = null,
 ) {
-    companion object { const val CURRENT_SCHEMA = 9 }
+    companion object { const val CURRENT_SCHEMA = 10 }
 }
 
 fun PlanProject.latestRevision(pageIndex: Int): PageRevision? =
@@ -672,8 +677,10 @@ fun calculateTakeoffTotals(measurements: Iterable<Measurement>, calibration: Cal
     return measurements.fold(TakeoffTotals()) { total, measurement ->
         val multiplier = measurement.takeoff.quantity.coerceAtLeast(0.0)
         val adjustedMultiplier = multiplier * measurement.takeoff.wasteFactor.coerceAtLeast(0.0)
+        // Risers and drops are part of the installed length even though the plan cannot show them.
+        val verticalMeters = if (calibration == null) 0.0 else measurement.verticalLengthMm / 1_000.0
         val segmentLength = measurement.points.zipWithNext()
-            .sumOf { (start, end) -> start.distanceTo(end) } * factor
+            .sumOf { (start, end) -> start.distanceTo(end) } * factor + verticalMeters
         val area = if (measurement.type == MeasurementType.AREA && measurement.points.size >= 3) {
             kotlin.math.abs(
                 measurement.points.indices.sumOf { index ->

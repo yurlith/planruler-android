@@ -40,6 +40,22 @@ object PlanRulerIcons {
     private fun PathBuilder.dot(cx: Float, cy: Float) = circle(cx, cy, 1.5f)
 
     val Back = stroked("Back") { moveTo(15f, 4.5f); lineTo(8f, 12f); lineTo(15f, 19.5f) }
+
+    /** An isometric cube: the three axes of a pipe isometric. */
+    val Isometric = stroked("Isometric") {
+        moveTo(12f, 3f); lineTo(20f, 7.5f); lineTo(20f, 16.5f); lineTo(12f, 21f)
+        lineTo(4f, 16.5f); lineTo(4f, 7.5f); close()
+        moveTo(4f, 7.5f); lineTo(12f, 12f); lineTo(20f, 7.5f)
+        moveTo(12f, 12f); lineTo(12f, 21f)
+    }
+
+    /** Valve symbol as drawn on schemes: two triangles meeting at the stem. */
+    val Valve = stroked("Valve") {
+        moveTo(4f, 8f); lineTo(12f, 13f); lineTo(4f, 18f); close()
+        moveTo(20f, 8f); lineTo(12f, 13f); lineTo(20f, 18f); close()
+        moveTo(12f, 13f); lineTo(12f, 5f)
+        moveTo(9f, 5f); lineTo(15f, 5f)
+    }
     val Forward = stroked("Forward") { moveTo(9f, 4.5f); lineTo(16f, 12f); lineTo(9f, 19.5f) }
 
     val Home = stroked("Home") {

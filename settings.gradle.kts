@@ -25,6 +25,7 @@ include(
     ":core:project-api",
     ":core:project-local",
     ":core:pipe-calculator",
+    ":core:isometric",
     ":core:fabrication3d-api",
     ":core:fabrication3d-engine",
     ":core:fabrication3d-catalog",

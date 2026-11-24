@@ -5,6 +5,10 @@ import androidx.lifecycle.viewModelScope
 import com.planruler.document.api.*
 import com.planruler.engine.api.*
 import com.planruler.export.api.*
+import com.planruler.isometric.IsoResult
+import com.planruler.isometric.IsometricEngine
+import com.planruler.isometric.PlanIsometricBuilder
+import com.planruler.isometric.PlanIsometricOptions
 import com.planruler.model.*
 import com.planruler.project.api.*
 import kotlinx.coroutines.Job
@@ -78,6 +82,17 @@ class WorkspaceViewModel(
     private val saveMutex = Mutex()
     private val openDocuments = mutableMapOf<String, OpenedDocument>()
     private var settings = initialSettings
+
+    /**
+     * Pipe isometrics of the project. Their sheets travel inside [PlanProject.isometrics], so
+     * the ordinary project save, backup and export paths carry them without special cases.
+     */
+    val isometric = IsometricSession(
+        onChanged = changed@{ sheets, active ->
+            val project = ui.value.project ?: return@changed
+            mutableUi.value = ui.value.copy(project = project.copy(isometrics = sheets, activeIsometricId = active))
+        },
+    )
 
     init {
         viewModelScope.launch {
@@ -160,6 +175,7 @@ class WorkspaceViewModel(
             )
             is ProjectResult.Ok -> {
                 engine.restore(loaded.value.calibration, loaded.value.displayUnit, loaded.value.measurements)
+                isometric.attach(loaded.value.isometrics, loaded.value.activeIsometricId)
                 mutableUi.value = WorkspaceUiState(project = loaded.value)
                 render(loaded.value.selectedPage)
             }
@@ -698,6 +714,113 @@ class WorkspaceViewModel(
         reportAndPersist(engine.insertVertex(id, afterIndex, point))
     }
     fun removeVertex(id: MeasurementId, index: Int) { reportAndPersist(engine.removeVertex(id, index)) }
+    /** Riser (positive) or drop (negative) at one vertex of a pipe run, millimetres. */
+    fun setVertexRise(id: MeasurementId, index: Int, riseMm: Double): Boolean =
+        reportAndPersist(engine.setVertexRise(id, index, riseMm))
+
+    /** Opens the project's isometric, creating the first sheet when there is none yet. */
+    fun openIsometric(defaultName: String) {
+        val hadSheet = isometric.active.value != null
+        isometric.open(defaultName)
+        if (!hadSheet) persistCriticalChange()
+    }
+
+    fun newIsometricSheet(name: String) {
+        isometric.create(name)
+        persistCriticalChange()
+    }
+
+    fun selectIsometricSheet(id: IsometricSheetId) {
+        isometric.select(id)
+        scheduleSave()
+    }
+
+    fun deleteIsometricSheet(id: IsometricSheetId) {
+        isometric.delete(id)
+        persistCriticalChange()
+    }
+
+    /** Runs one isometric edit; failures become a snackbar, successes are saved at once. */
+    fun <T> isoEdit(command: IsometricEngine.() -> IsoResult<T>): T? =
+        when (val result = isometric.edit(command)) {
+            is IsoResult.Ok -> {
+                persistCriticalChange()
+                result.value
+            }
+            is IsoResult.Error -> {
+                mutableUi.value = ui.value.copy(message = UiMessage.Isometric(result.error))
+                null
+            }
+        }
+
+    fun isoChange(command: IsometricEngine.() -> Unit) {
+        isometric.change(command)
+        persistCriticalChange()
+    }
+
+    fun updateIsometricViewport(viewport: ViewportState) {
+        isometric.updateViewport(viewport)
+        scheduleSave()
+    }
+
+    /**
+     * Builds a new isometric sheet from the pipe runs on the current page: plan positions,
+     * stored risers and drops, joints and tees. Existing sheets are never overwritten.
+     */
+    fun generateIsometricFromPlan(name: String): Boolean {
+        val project = ui.value.project ?: return false
+        val snapshot = engine.state.value
+        val now = System.currentTimeMillis()
+        val base = IsometricEngine.newSheet(UUID.randomUUID().toString(), name, now)
+        return when (
+            val result = PlanIsometricBuilder.build(
+                base = base,
+                measurements = snapshot.measurements,
+                calibration = snapshot.calibration,
+                options = PlanIsometricOptions(pageIndex = project.selectedPage),
+                idGenerator = { UUID.randomUUID().toString() },
+            )
+        ) {
+            is IsoResult.Ok -> {
+                isometric.add(result.value.sheet)
+                persistCriticalChange()
+                true
+            }
+            is IsoResult.Error -> {
+                mutableUi.value = ui.value.copy(
+                    message = if (snapshot.calibration == null) {
+                        UiMessage.Measurement(MeasurementError.NotCalibrated)
+                    } else {
+                        UiMessage.IsometricNoPipes
+                    },
+                )
+                false
+            }
+        }
+    }
+
+    fun exportIsometric(uri: String, format: IsometricExportFormat) {
+        viewModelScope.launch {
+            saveNow()
+            val sheet = isometric.engine.sheet
+            val content = isometricDocument(
+                sheet = sheet,
+                format = format,
+                text = Wt(settings.language),
+                language = settings.language,
+                csvDelimiter = settings.csvDelimiter,
+            )
+            val result = exports.exportText(uri, content)
+            mutableUi.value = ui.value.copy(
+                message = if (result is ExportResult.Success) UiMessage.ExportDone else UiMessage.ExportFailed,
+            )
+        }
+    }
+
+    /** File name offered by the system save dialog for the active sheet. */
+    fun isometricExportName(format: IsometricExportFormat): String =
+        isometricFileName(isometric.engine.sheet.name, format)
+
     fun updateProperties(id: MeasurementId, update: MeasurementPropertiesUpdate) {
         reportAndPersist(engine.updateProperties(id, update))
     }

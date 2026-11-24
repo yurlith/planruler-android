@@ -9,6 +9,9 @@ $forbidden = @(
     @{ Path = "core\engine-api"; Pattern = "^import android\." },
     @{ Path = "core\fabrication3d-api"; Pattern = "^import android\." },
     @{ Path = "core\fabrication3d-engine"; Pattern = "^import android\." },
+    # The isometric engine is pure Kotlin so it can be tested on the JVM and reused by exports.
+    @{ Path = "core\isometric"; Pattern = "^import (android|androidx)\." },
+    @{ Path = "core\isometric"; Pattern = "com\.planruler\.(engine\.default|document\.|project\.local|feature\.)" },
     # The engine stays independent of the pipe calculator; the catalog bridge owns that link.
     @{ Path = "core\fabrication3d-api"; Pattern = "com\.planruler\.pipecalculator" },
     @{ Path = "core\fabrication3d-engine\src\main"; Pattern = "com\.planruler\.pipecalculator" }

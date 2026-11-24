@@ -96,6 +96,15 @@ interface MeasurementEngineApi {
     fun commitEdit(): EngineResult<Unit>
     fun cancelEdit()
     fun updateAnnotation(id: MeasurementId, text: String): EngineResult<Unit>
+    /**
+     * Signed vertical leg (riser or drop) taken at one vertex of a measured run, millimetres.
+     * Zero removes it. Engines without route support refuse the edit.
+     */
+    fun setVertexRise(id: MeasurementId, index: Int, riseMm: Double): EngineResult<Unit> =
+        EngineResult.Error(MeasurementError.InvalidGeometry("Vertical legs are not supported"))
+    /** Height of the first point of a measured run above the project reference level, millimetres. */
+    fun setRouteStartElevation(id: MeasurementId, elevationMm: Double): EngineResult<Unit> =
+        EngineResult.Error(MeasurementError.InvalidGeometry("Vertical legs are not supported"))
     fun deleteMeasurement(id: MeasurementId): EngineResult<Unit>
     fun setDisplayUnit(unit: LengthUnit)
     fun setDisplayFormat(decimals: Int, showUnits: Boolean)
@@ -105,7 +114,8 @@ interface MeasurementEngineApi {
     fun format(value: MeasureValue, unit: LengthUnit? = null): String
 }
 
-enum class SnapType { NONE, VERTEX, HORIZONTAL, VERTICAL, SEGMENT }
+/** [DIAGONAL] follows 45° from the previous point: the usual offset of pipe and cable runs. */
+enum class SnapType { NONE, VERTEX, HORIZONTAL, VERTICAL, SEGMENT, DIAGONAL }
 
 data class SnapContext(
     val measurements: List<Measurement>,
@@ -119,6 +129,7 @@ data class SnapContext(
         SnapType.HORIZONTAL,
         SnapType.VERTICAL,
         SnapType.SEGMENT,
+        SnapType.DIAGONAL,
     ),
 )
 

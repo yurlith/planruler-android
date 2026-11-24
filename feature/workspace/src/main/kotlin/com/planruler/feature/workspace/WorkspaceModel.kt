@@ -9,6 +9,10 @@ import com.planruler.document.api.DepthDecodeStatus
 import com.planruler.engine.api.MeasurementError
 import com.planruler.engine.api.SnapType
 import com.planruler.export.api.ExportLabels
+import com.planruler.isometric.IsoError
+import com.planruler.isometric.IsoFittingKind
+import com.planruler.model.IsoComponentKind
+import com.planruler.model.IsoPipeSystem
 import com.planruler.model.Calibration
 import com.planruler.model.AppLanguage
 import com.planruler.model.MeasurementType
@@ -67,9 +71,10 @@ fun scaleConfidence(calibration: Calibration?, vectorPage: Boolean): ScaleConfid
 }
 
 fun SnapMode.allowedTypes(): Set<SnapType> = when (this) {
-    SnapMode.AUTO -> setOf(SnapType.VERTEX, SnapType.HORIZONTAL, SnapType.VERTICAL, SnapType.SEGMENT)
+    SnapMode.AUTO -> setOf(SnapType.VERTEX, SnapType.HORIZONTAL, SnapType.VERTICAL, SnapType.SEGMENT, SnapType.DIAGONAL)
     SnapMode.VERTEX -> setOf(SnapType.VERTEX)
-    SnapMode.AXIS -> setOf(SnapType.HORIZONTAL, SnapType.VERTICAL)
+    // Pipes and cable trays are routed at 90° and 45°; both guides belong to the axis mode.
+    SnapMode.AXIS -> setOf(SnapType.HORIZONTAL, SnapType.VERTICAL, SnapType.DIAGONAL)
     SnapMode.EDGE -> setOf(SnapType.SEGMENT)
     SnapMode.OFF -> emptySet()
 }
@@ -125,6 +130,8 @@ sealed interface UiMessage {
     data object ExportFailed : UiMessage
     data object CalibrationSaved : UiMessage
     data object RevisionSaved : UiMessage
+    data object IsometricNoPipes : UiMessage
+    data class Isometric(val error: IsoError) : UiMessage
     data class Measurement(val error: MeasurementError) : UiMessage
     data class Document(val error: DocumentError) : UiMessage
 }
@@ -602,6 +609,11 @@ class Wt(private val language: AppLanguage) {
         UiMessage.ExportFailed -> exportFailed
         UiMessage.CalibrationSaved -> calibrationSaved
         UiMessage.RevisionSaved -> revisionSaved
+        UiMessage.IsometricNoPipes -> t(
+            "На этой странице нет трасс труб. Нарисуйте трубы шаблоном отопления или водопровода.",
+            "There are no pipe runs on this page. Draw pipes with a heating or plumbing template.",
+        )
+        is UiMessage.Isometric -> isoError(message.error)
         is UiMessage.Measurement -> measurementError(message.error)
         is UiMessage.Document -> documentError(message.error)
     }
@@ -643,8 +655,147 @@ class Wt(private val language: AppLanguage) {
             "В фигуре не может остаться меньше точек.",
             "The shape cannot lose any more points.",
         )
+        reason.contains("Vertical legs", true) -> t(
+            "Подъём и опуск задаются только у трасс: линий и полилиний.",
+            "Rises and drops belong to runs: distances and polylines.",
+        )
+        reason.contains("out of range", true) -> t(
+            "Высота вне допустимого диапазона (до 100 м).",
+            "The height is out of range (up to 100 m).",
+        )
         else -> reason
     }
+
+    // Pipe isometrics (axonometric schemes) and pipe routing on plans.
+    val isometric get() = t("Изометрия", "Isometric")
+    val isoEmptyHint get() = t(
+        "Выберите «Труба» и ведите линию по сетке: трасса ляжет вдоль X, Y или Z. Удерживайте палец на трубе, чтобы ввести точную длину.",
+        "Choose Pipe and draw along the grid: runs follow X, Y or Z. Long-press a pipe to type its exact length.",
+    )
+    val isoSelect get() = t("Выбор", "Select")
+    val isoPipe get() = t("Труба", "Pipe")
+    val isoValves get() = t("Арматура", "Valves")
+    val isoByLengths get() = t("По размерам", "By lengths")
+    val isoDone get() = t("Готово", "Done")
+    val isoChainHint get() = t(
+        "Касайтесь по ходу трассы · двойное касание — конец",
+        "Tap along the route · double tap to finish",
+    )
+    val isoValveHint get() = t(
+        "Коснитесь трубы, чтобы поставить арматуру, или конца трассы — для прибора.",
+        "Tap a pipe to place a valve, or a run end for a device.",
+    )
+    val isoOffsets get() = t("Отводы 45°", "45° offsets")
+    val isoFromPlan get() = t("Построить из плана", "Build from plan")
+    val isoFromPlanName get() = t("Схема по плану", "Scheme from plan")
+    val isoProjectionIsometric get() = t("Изометрия 30°", "Isometric 30°")
+    val isoProjectionFrontal get() = t("Фронтальная 45°", "Frontal 45°")
+    val isoGridStep get() = t("Шаг сетки, мм", "Grid step, mm")
+    val isoDimensions get() = t("Размеры", "Dimensions")
+    val isoLevels get() = t("Отметки уровней", "Level marks")
+    val isoSystemCodes get() = t("Обозначения систем", "System codes")
+    val isoExportSvg get() = t("Экспорт SVG", "Export SVG")
+    val isoExportDxf get() = t("Экспорт DXF", "Export DXF")
+    val isoExportCsv get() = t("Ведомость в CSV", "Bill of materials CSV")
+    val isoSheets get() = t("Листы изометрии", "Isometric sheets")
+    val isoNewSheet get() = t("Новый лист", "New sheet")
+    val isoRename get() = t("Переименовать лист", "Rename sheet")
+    val isoSheetName get() = t("Название листа", "Sheet name")
+    val isoDeleteSheet get() = t("Удалить лист", "Delete sheet")
+    val isoDeleteSheetBody get() = t(
+        "Лист изометрии будет удалён. Замеры на плане останутся.",
+        "The isometric sheet will be deleted. Plan measurements stay.",
+    )
+    val isoLengthMm get() = t("Длина, мм", "Length, mm")
+    val isoSplit get() = t("Разделить", "Split")
+    val isoApplySpec get() = t("Применить систему и диаметр", "Apply system and size")
+    val isoContinue get() = t("Вести отсюда", "Draw from here")
+    val isoBom get() = t("Ведомость", "Bill of materials")
+    val isoPipes get() = t("Трубы", "Pipes")
+    val isoFittings get() = t("Фасонные части", "Fittings")
+    val isoDevices get() = t("Арматура и приборы", "Valves and devices")
+    val isoVertical get() = t("в т. ч. вертикаль", "incl. vertical")
+    val isoTotal get() = t("Итого", "Total")
+    val isoElbows get() = t("отводов", "elbows")
+    val isoTees get() = t("тройников", "tees")
+    val isoBomEmpty get() = t(
+        "Нарисуйте трассы — ведомость посчитается сама.",
+        "Draw runs and the bill of materials fills itself.",
+    )
+    val isoSystem get() = t("Система", "Pipe system")
+    val isoSection get() = t("Раздел", "Section")
+    val isoItem get() = t("Наименование", "Item")
+    val isoSize get() = t("Диаметр трубы", "Pipe size")
+    val isoDirection get() = t("Направление", "Direction")
+    val isoAddRun get() = t("Добавить участок", "Add run")
+    val isoStartFirst get() = t(
+        "Сначала коснитесь начала трассы или выберите узел.",
+        "Tap the start of the run or select a joint first.",
+    )
+    val isoQuantity get() = t("Кол-во", "Qty")
+    val isoComponentKind get() = t("Что ставим", "What to place")
+    val isoFit get() = t("Вся схема", "Fit all")
+
+    fun isoFitting(kind: IsoFittingKind) = when (kind) {
+        IsoFittingKind.ELBOW -> t("Отвод", "Elbow")
+        IsoFittingKind.TEE -> t("Тройник", "Tee")
+        IsoFittingKind.CROSS -> t("Крестовина", "Cross")
+        IsoFittingKind.MANIFOLD -> t("Коллектор", "Manifold")
+        IsoFittingKind.REDUCER -> t("Переход", "Reducer")
+        IsoFittingKind.COUPLING -> t("Муфта", "Coupling")
+        IsoFittingKind.END -> t("Открытый конец", "Open end")
+    }
+
+    fun isoComponent(kind: IsoComponentKind) = when (kind) {
+        IsoComponentKind.GATE_VALVE -> t("Задвижка", "Gate valve")
+        IsoComponentKind.BALL_VALVE -> t("Кран шаровой", "Ball valve")
+        IsoComponentKind.CHECK_VALVE -> t("Обратный клапан", "Check valve")
+        IsoComponentKind.BALANCING_VALVE -> t("Балансировочный клапан", "Balancing valve")
+        IsoComponentKind.STRAINER -> t("Фильтр", "Strainer")
+        IsoComponentKind.PUMP -> t("Насос", "Pump")
+        IsoComponentKind.METER -> t("Счётчик", "Meter")
+        IsoComponentKind.RADIATOR -> t("Радиатор", "Radiator")
+        IsoComponentKind.FIXTURE -> t("Сантехприбор", "Fixture")
+        IsoComponentKind.AIR_VENT -> t("Воздухоотводчик", "Air vent")
+        IsoComponentKind.DRAIN -> t("Спускник", "Drain valve")
+        IsoComponentKind.PLUG -> t("Заглушка", "Plug")
+    }
+
+    fun isoSystemName(system: IsoPipeSystem) = when (system) {
+        IsoPipeSystem.HEATING_SUPPLY -> t("Отопление, подача", "Heating flow")
+        IsoPipeSystem.HEATING_RETURN -> t("Отопление, обратка", "Heating return")
+        IsoPipeSystem.COLD_WATER -> t("Холодная вода", "Cold water")
+        IsoPipeSystem.HOT_WATER -> t("Горячая вода", "Hot water")
+        IsoPipeSystem.HOT_WATER_CIRCULATION -> t("Циркуляция ГВС", "Hot water circulation")
+        IsoPipeSystem.SEWER -> t("Канализация", "Sewer")
+        IsoPipeSystem.GAS -> t("Газ", "Gas")
+        IsoPipeSystem.OTHER -> t("Прочее", "Other")
+    }
+
+    fun isoError(error: IsoError): String = when (error) {
+        IsoError.ZeroLength -> t("Участок слишком короткий.", "The run is too short.")
+        IsoError.Duplicate -> t("Эти точки уже соединены.", "These points are already connected.")
+        IsoError.Overlap -> t("Трасса уже идёт в этом направлении.", "A run already goes this way.")
+        IsoError.Loop -> t(
+            "Трасса замкнута в кольцо: измените длину соседнего участка.",
+            "The run closes a loop: change a neighbouring length instead.",
+        )
+        IsoError.NothingToUndo -> t("Отменять нечего.", "There is nothing to undo.")
+        is IsoError.NotFound -> t("Элемент уже удалён.", "The item no longer exists.")
+        is IsoError.Invalid -> t("Недопустимое значение.", "Invalid value.")
+    }
+
+    val riseDrop get() = t("Подъём/опуск", "Rise/drop")
+    val riseTitle get() = t("Вертикальный участок в точке", "Vertical leg at this point")
+    val riseUp get() = t("Вверх", "Up")
+    val riseDown get() = t("Вниз", "Down")
+    val riseHeight get() = t("Высота, мм", "Height, mm")
+    val riseHint get() = t(
+        "Высота добавится к длине трубы и перейдёт в изометрию. 0 убирает участок.",
+        "The height is added to the pipe length and carried into the isometric. 0 removes it.",
+    )
+    val elbowsShort get() = t("отв.", "elb.")
+    val risePoint get() = t("Точка", "Point")
 
     fun documentError(error: DocumentError): String = when (error) {
         DocumentError.UnsupportedFormat -> t("Выберите файл PDF, PNG или JPEG.", "Choose a PDF, PNG or JPEG file.")

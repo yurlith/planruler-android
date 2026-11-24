@@ -5,11 +5,12 @@
 ```text
 app (composition root)
  ├─ feature:projects ──> core:model, core:project-api
- ├─ feature:workspace ─> model, engine-api, document-api, project-api, export-api
+ ├─ feature:workspace ─> model, engine-api, document-api, project-api, export-api, isometric
  ├─ feature:settings ──> core:model
  ├─ feature:pipe-calculator ─> core:pipe-calculator, core:fabrication-3d
  ├─ feature:crm ────────> core:crm-api
  ├─ core:engine-default ──> engine-api, model
+ ├─ core:isometric ───────> model (чистый Kotlin: проекции, сетка, граф трасс, ведомость, SVG/DXF)
  ├─ core:document-android ─> document-api, model
  ├─ core:project-local ────> project-api, model
  ├─ core:export-android ───> export-api, model
@@ -28,7 +29,15 @@ into a seven-part 3D graph. The Compose projection is an Android presentation
 adapter, so a later GPU renderer or GLB exporter can consume the same assembly
 and mesh.
 
-Feature-модули не импортируют implementations. `scripts/check_architecture.ps1` запрещает такие зависимости и Android-imports в `core:model`/`core:engine-api`.
+`core:isometric` — движок изометрических схем трубопроводов без Android. Проекции без
+искажения длин (изометрия 30° и фронтальная 45°, ГОСТ 2.317 / ISO 5456-3), адаптивная сетка,
+граф трасс с командами и undo/redo, фасонные части из геометрии, ведомость, сцена с
+размещением размеров и отметок, построение схемы по трассам плана и экспорт SVG/DXF.
+Листы хранятся в `PlanProject.isometrics`; экран `IsometricEditorScreen` в
+`feature:workspace` только рисует сцену движка и передаёт ему жесты. Подробности —
+`docs/ISOMETRIC_ENGINE_2026-11-24.md`.
+
+Feature-модули не импортируют implementations. `scripts/check_architecture.ps1` запрещает такие зависимости и Android-imports в `core:model`/`core:engine-api`/`core:isometric`.
 
 `Measurement` хранит документные координаты, стиль и свойства. Значения вычисляются по текущей `Calibration`; повторная калибровка не мигрирует геометрию. `ViewportTransform` переводит screen ↔ document и хранит центр в document coordinates.
 

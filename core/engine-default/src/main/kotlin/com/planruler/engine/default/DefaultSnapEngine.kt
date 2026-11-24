@@ -80,6 +80,27 @@ class DefaultSnapEngine : SnapEngine {
                     priority = 2,
                 )
             }
+            // 45° guides through the previous point; along the axes the axis guides already win.
+            listOf(1.0, -1.0).forEach { slope ->
+                val dx = candidate.x - anchor.x
+                val dy = candidate.y - anchor.y
+                // Foot of the perpendicular from the candidate onto the line dy = slope * dx.
+                val t = (dx + slope * dy) / 2.0
+                val projected = DocPoint(anchor.x + t, anchor.y + slope * t)
+                val distance = candidate.distanceTo(projected)
+                if (distance <= limit && abs(t) > limit) {
+                    options += Candidate(
+                        SnapResult(
+                            projected,
+                            SnapType.DIAGONAL,
+                            distance = distance,
+                            guideStart = anchor,
+                            guideEnd = projected,
+                        ),
+                        priority = 2,
+                    )
+                }
+            }
         }
 
         // Explicit points are the strongest user intent, followed by axis guides

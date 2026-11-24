@@ -1220,6 +1220,7 @@ fun MoreToolsSheet(
     onExport: () -> Unit,
     onFocus: () -> Unit,
     onDismiss: () -> Unit,
+    onIsometric: () -> Unit = {},
 ) {
     val sheetState = rememberModalBottomSheetState()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
@@ -1230,6 +1231,7 @@ fun MoreToolsSheet(
             }
             HorizontalDivider(Modifier.padding(vertical = Space.x2))
             SheetRow(PlanRulerIcons.Schedule, text.schedule) { onSchedule() }
+            SheetRow(PlanRulerIcons.Isometric, text.isometric) { onIsometric() }
             SheetRow(PlanRulerIcons.Export, text.export) { onExport() }
             SheetRow(PlanRulerIcons.Focus, text.focusMode + if (focusMode) " ✓" else "") { onFocus() }
         }
