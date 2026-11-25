@@ -155,3 +155,68 @@ internal fun distanceToSegment(point: Vec3, start: Vec3, end: Vec3): Pair<Double
 }
 
 internal fun nearlyEqual(a: Double, b: Double, tolerance: Double = 1e-6) = abs(a - b) <= tolerance
+
+/** True when the two segments cross at a single point inside both (touching ends do not count). */
+internal fun segmentsCross(a: P2, b: P2, c: P2, d: P2): Boolean {
+    val ab = b - a
+    val cd = d - c
+    val d1 = ab.cross(c - a)
+    val d2 = ab.cross(d - a)
+    val d3 = cd.cross(a - c)
+    val d4 = cd.cross(b - c)
+    return ((d1 > 0.0 && d2 < 0.0) || (d1 < 0.0 && d2 > 0.0)) && ((d3 > 0.0 && d4 < 0.0) || (d3 < 0.0 && d4 > 0.0))
+}
+
+/** Gap between two segments; zero when they cross. */
+internal fun segmentDistance(a: P2, b: P2, c: P2, d: P2): Double {
+    if (segmentsCross(a, b, c, d)) return 0.0
+    return minOf(
+        distanceToSegment(a, c, d).first,
+        distanceToSegment(b, c, d).first,
+        distanceToSegment(c, a, b).first,
+        distanceToSegment(d, a, b).first,
+    )
+}
+
+/** Even-odd test; the polygon is closed implicitly. */
+internal fun polygonContains(polygon: List<P2>, point: P2): Boolean {
+    var inside = false
+    var j = polygon.lastIndex
+    for (i in polygon.indices) {
+        val pi = polygon[i]
+        val pj = polygon[j]
+        if ((pi.y > point.y) != (pj.y > point.y) &&
+            point.x < (pj.x - pi.x) * (point.y - pi.y) / (pj.y - pi.y) + pi.x
+        ) {
+            inside = !inside
+        }
+        j = i
+    }
+    return inside
+}
+
+/** Gap between a closed polygon and a segment; zero when they touch or overlap. */
+internal fun polygonSegmentDistance(polygon: List<P2>, a: P2, b: P2): Double {
+    if (polygon.size < 2) return polygon.firstOrNull()?.let { distanceToSegment(it, a, b).first } ?: Double.MAX_VALUE
+    if (polygon.size > 2 && (polygonContains(polygon, a) || polygonContains(polygon, b))) return 0.0
+    var best = Double.MAX_VALUE
+    for (i in polygon.indices) {
+        val p = polygon[i]
+        val q = polygon[(i + 1) % polygon.size]
+        if (segmentsCross(p, q, a, b)) return 0.0
+        best = minOf(best, distanceToSegment(a, p, q).first, distanceToSegment(b, p, q).first, distanceToSegment(p, a, b).first)
+    }
+    return best
+}
+
+/** Gap between two closed polygons; zero when they touch, cross or one contains the other. */
+internal fun polygonDistance(first: List<P2>, second: List<P2>): Double {
+    if (second.size > 2 && first.any { polygonContains(second, it) }) return 0.0
+    if (first.size > 2 && second.any { polygonContains(first, it) }) return 0.0
+    var best = Double.MAX_VALUE
+    for (i in first.indices) {
+        best = minOf(best, polygonSegmentDistance(second, first[i], first[(i + 1) % first.size]))
+        if (best == 0.0) return 0.0
+    }
+    return best
+}

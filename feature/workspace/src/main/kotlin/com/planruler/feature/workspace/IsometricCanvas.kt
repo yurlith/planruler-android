@@ -7,6 +7,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -32,6 +33,7 @@ import com.planruler.designsystem.theme.LocalPlanRulerDimens
 import com.planruler.isometric.IsoGrid
 import com.planruler.isometric.IsoLabeler
 import com.planruler.isometric.IsoProjection
+import com.planruler.isometric.IsoScene
 import com.planruler.isometric.IsoSceneBuilder
 import com.planruler.isometric.IsoSceneStyle
 import com.planruler.isometric.IsoSelection
@@ -48,8 +50,13 @@ import com.planruler.model.IsometricSheet
 import com.planruler.model.ScreenPoint
 import com.planruler.model.ViewportState
 import com.planruler.model.ViewportTransform
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlin.math.ln
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
+import kotlin.math.round
 
 internal const val ISO_MIN_ZOOM = 0.002
 internal const val ISO_MAX_ZOOM = 20.0
@@ -120,13 +127,18 @@ internal fun IsometricCanvas(
 
     fun live() = isoTransform(size.width.toDouble(), size.height.toDouble(), gestureViewport.value)
 
-    // Panning keeps the zoom, so the scene (label placement included) is rebuilt only when
-    // the network, the zoom, the selection or the rubber-band preview change.
+    // Annotations are laid out for zoom steps of 25 % and off the main thread: panning and
+    // pinching between steps redraw the last layout scaled, so gestures stay smooth on large
+    // schemes. The rubber band is cheap and follows the finger every frame.
     val zoom = viewport.zoom.coerceIn(ISO_MIN_ZOOM, ISO_MAX_ZOOM)
+    val layoutZoom = remember(zoom) { LAYOUT_ZOOM_STEP.pow(round(ln(zoom) / ln(LAYOUT_ZOOM_STEP))) }
     val textPx = with(density) { 11.sp.toPx() }.toDouble()
-    val style = remember(zoom, textPx) { IsoSceneStyle.forScreen(pxPerMm = zoom, textPx = textPx) }
-    val scene = remember(sheet, style, labeler, selection, preview) {
-        IsoSceneBuilder.build(sheet, style, labeler, selection, preview)
+    val style = remember(layoutZoom, textPx) { IsoSceneStyle.forScreen(pxPerMm = layoutZoom, textPx = textPx) }
+    val scene by produceState<IsoScene?>(null, sheet, style, labeler, selection) {
+        value = withContext(Dispatchers.Default) { IsoSceneBuilder.build(sheet, style, labeler, selection) }
+    }
+    val rubberBand = remember(sheet, preview, style, labeler) {
+        preview?.let { IsoSceneBuilder.preview(sheet, it, style, labeler) }
     }
 
     Canvas(
@@ -167,18 +179,20 @@ internal fun IsometricCanvas(
         drawRect(PAPER)
         val transform = isoTransform(this.size.width.toDouble(), this.size.height.toDouble(), viewport)
         drawGrid(sheet, transform, zoom)
-        scene.strokes.forEach { stroke -> drawIsoStroke(stroke, transform) }
-        scene.dots.forEach { dot ->
-            val center = transform.toScreen(dot.center)
-            val radius = (dot.radiusMm * zoom).toFloat().coerceAtLeast(2.dp.toPx())
-            if (dot.filled) {
-                drawCircle(Color(dot.colorArgb), radius, center)
-            } else {
-                drawCircle(PAPER, radius, center)
-                drawCircle(Color(dot.colorArgb), radius, center, style = Stroke(1.5.dp.toPx()))
+        listOfNotNull(scene, rubberBand).forEach { layer ->
+            layer.strokes.forEach { stroke -> drawIsoStroke(stroke, transform) }
+            layer.dots.forEach { dot ->
+                val center = transform.toScreen(dot.center)
+                val radius = (dot.radiusMm * zoom).toFloat().coerceAtLeast(2.dp.toPx())
+                if (dot.filled) {
+                    drawCircle(Color(dot.colorArgb), radius, center)
+                } else {
+                    drawCircle(PAPER, radius, center)
+                    drawCircle(Color(dot.colorArgb), radius, center, style = Stroke(1.5.dp.toPx()))
+                }
             }
+            drawIsoTexts(layer.texts, transform, zoom)
         }
-        drawIsoTexts(scene.texts, transform, zoom)
         chainStart?.let { start ->
             val point = transform.toScreen(IsoProjection.of(sheet.projection).project(start))
             drawCircle(Color(style.previewArgb), 7.dp.toPx(), point, style = Stroke(2.dp.toPx()))
@@ -186,6 +200,8 @@ internal fun IsometricCanvas(
         }
     }
 }
+
+private const val LAYOUT_ZOOM_STEP = 1.25
 
 private val PAPER = Color(0xFFFFFFFF)
 private val GRID_MINOR = Color(0xFFE6EBF0)

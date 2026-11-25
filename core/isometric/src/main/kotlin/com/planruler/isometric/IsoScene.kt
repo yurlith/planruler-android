@@ -12,6 +12,7 @@ import com.planruler.model.IsoPipeSystem
 import com.planruler.model.IsometricSheet
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.hypot
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -139,6 +140,21 @@ object IsoSystemStyle {
 }
 
 object IsoSceneBuilder {
+    /** Dimension lines stack outwards at most this many tiers before a run is left undimensioned. */
+    private const val DIMENSION_TIERS = 6
+
+    /** Nearby dimensions tried for moving aside when a run finds no place for its own. */
+    private const val RIP_UP_LIMIT = 6
+
+    /** Rearrangements tried per sheet before the remaining runs keep their lengths along the run. */
+    private const val RIP_UP_BUDGET = 40
+
+    /** Tiers tried for a riser whose height the level marks already give. */
+    private const val RISER_TIERS = 2
+
+    /** Cost of an extension line lying on a neighbouring run, against 1–2 per crossing. */
+    private const val ALONG_RUN_COST = 10
+
     fun build(
         sheet: IsometricSheet,
         style: IsoSceneStyle,
@@ -168,43 +184,159 @@ object IsoSceneBuilder {
                 pipeId = pipe.id,
             )
         }
-        // Annotations avoid the runs and each other: every placed dimension becomes an obstacle.
-        val obstacles = strokes.map { it.points[0] to it.points[1] }.toMutableList()
-        sheet.pipes.forEach { pipe ->
-            val a = projected[pipe.from] ?: return@forEach
-            val b = projected[pipe.to] ?: return@forEach
-            val side = annotationSide(network, projection, pipe, a, b, projected, centroid, obstacles, style)
-            if (sheet.showDimensions) {
-                dimension(network, pipe, a, b, side, style, labeler, pipe.id in selection.pipeIds, strokes, texts)
-                    ?.let { obstacles += it }
-            }
-            if (sheet.showSystemCodes) {
-                val tag = listOfNotNull(labeler.pipeTag(pipe.spec), pipe.label).joinToString(" ").takeIf(String::isNotBlank)
-                if (tag != null) tag(network, pipe, tag, a, b, side, style, texts)
-            }
-        }
-
+        // Symbols are laid out first so that every annotation is placed around them; they are
+        // still painted after the dimensions and tags, as on a drawing.
+        val symbolStrokes = mutableListOf<IsoStroke>()
+        val symbolDots = mutableListOf<IsoDot>()
+        val symbolTexts = mutableListOf<IsoText>()
         network.fittings().forEach { fitting ->
             val p = projected[fitting.nodeId] ?: return@forEach
             when (fitting.kind) {
                 IsoFittingKind.TEE, IsoFittingKind.CROSS, IsoFittingKind.MANIFOLD ->
-                    dots += IsoDot(p, style.symbolMm * 0.22, style.inkArgb, filled = true, role = IsoRole.FITTING, nodeId = fitting.nodeId)
+                    symbolDots += IsoDot(p, style.symbolMm * 0.22, style.inkArgb, filled = true, role = IsoRole.FITTING, nodeId = fitting.nodeId)
                 IsoFittingKind.END ->
-                    dots += IsoDot(p, style.symbolMm * 0.18, style.inkArgb, filled = false, role = IsoRole.FITTING, nodeId = fitting.nodeId)
-                IsoFittingKind.REDUCER -> reducer(network, projection, fitting, p, style, strokes)
+                    symbolDots += IsoDot(p, style.symbolMm * 0.18, style.inkArgb, filled = false, role = IsoRole.FITTING, nodeId = fitting.nodeId)
+                IsoFittingKind.REDUCER -> reducer(network, projection, fitting, p, style, symbolStrokes)
                 IsoFittingKind.ELBOW, IsoFittingKind.COUPLING -> Unit
             }
         }
-
-        sheet.components.forEach { component -> component(network, projection, component, style, selection, strokes, dots, texts) }
-
-        if (sheet.showElevations) {
-            // Level marks also keep clear of words and symbols already on the sheet.
-            val occupied = obstacles +
-                texts.flatMap { text -> textBox(text).let { box -> box.zip(box.drop(1) + box.first()) } } +
-                strokes.filter { it.role == IsoRole.SYMBOL || it.role == IsoRole.FITTING }.flatMap { it.points.zipWithNext() }
-            elevations(network, sheet, projected, style, labeler, occupied, strokes, texts)
+        sheet.components.forEach { component ->
+            component(network, projection, component, style, selection, symbolStrokes, symbolDots, symbolTexts)
         }
+
+        // Annotations keep clear of runs, symbols and of each other: whatever is placed joins
+        // the occupied paper before the next one is laid out. Dimensions go first, shortest
+        // runs first because they have the fewest places left; codes fill the gaps after.
+        val extent = Rect2.around(projected.values)?.let { maxOf(it.width, it.height) } ?: 0.0
+        val occupancy = Occupancy(cell = maxOf(style.textHeightMm * 6.0, extent / 64.0, 1e-6))
+        strokes.forEach(occupancy::add)
+        symbolStrokes.forEach(occupancy::add)
+        symbolDots.forEach(occupancy::add)
+        symbolTexts.forEach(occupancy::add)
+        val sides = mutableMapOf<IsoPipeId, Offset>()
+        val order = mutableListOf<IsoPipe>()
+        // The most constrained runs choose first: fewest clean extension directions, then the
+        // shortest, because they have the fewest places left for their value.
+        sheet.pipes
+            .filter { projected[it.from] != null && projected[it.to] != null }
+            .sortedWith(
+                compareBy<IsoPipe>(
+                    { pipe -> axisOffsets(network, projection, pipe, projected).count { !alongRun(network, pipe, projected, it) } },
+                    { pipe -> projected.getValue(pipe.from).distanceTo(projected.getValue(pipe.to)) },
+                ),
+            )
+            .forEach { pipe -> order += pipe }
+        val placed = LinkedHashMap<IsoPipeId, Dimension>()
+        fun place(pipe: IsoPipe): Dimension? {
+            val a = projected.getValue(pipe.from)
+            val b = projected.getValue(pipe.to)
+            val candidates = annotationSides(network, projection, pipe, a, b, projected, centroid, occupancy, style)
+            sides[pipe.id] = candidates.first()
+            if (!sheet.showDimensions) return null
+            val dimension = dimension(
+                network, pipe, a, b, candidates, projected, style, labeler,
+                pipe.id in selection.pipeIds, sheet.showElevations, occupancy,
+            ) ?: return null
+            dimension.items.forEach(occupancy::add)
+            placed[pipe.id] = dimension
+            sides[pipe.id] = dimension.side
+            return dimension
+        }
+        fun lift(dimension: Dimension) {
+            dimension.items.forEach(occupancy::remove)
+            placed.remove(dimension.pipeId)
+        }
+        fun restore(dimension: Dimension) {
+            dimension.items.forEach(occupancy::add)
+            placed[dimension.pipeId] = dimension
+            sides[dimension.pipeId] = dimension.side
+        }
+        // With level marks shown, risers come last: the marks already give their height, so a
+        // riser's dimension only takes paper that the runs and the marks leave free.
+        val risers = if (sheet.showElevations) order.filter { isRiser(network, it) } else emptyList()
+        val unplaced = order.filter { it !in risers && place(it) == null }
+        if (sheet.showDimensions) {
+            // A run left without a dimension may take the place of a nearby one if that one
+            // then finds another place: both keep their dimensions and nothing overlaps. Long
+            // runs try first, and the total work is bounded so large schemes stay quick.
+            var budget = RIP_UP_BUDGET
+            unplaced.sortedByDescending { projected.getValue(it.from).distanceTo(projected.getValue(it.to)) }.forEach { pipe ->
+                if (budget <= 0) return@forEach
+                val a = projected.getValue(pipe.from)
+                val b = projected.getValue(pipe.to)
+                val reachable = Rect2.around(listOf(a, b))!!.expanded(style.dimensionOffsetMm * 4.0 + style.textHeightMm * 4.0)
+                val blockers = placed.values
+                    .filter { dimension ->
+                        dimension.items.any { item ->
+                            item.maxX >= reachable.minX && item.minX <= reachable.maxX && item.maxY >= reachable.minY && item.minY <= reachable.maxY
+                        }
+                    }
+                    .sortedBy { dimension -> dimension.text.anchor.distanceTo((a + b) / 2.0) }
+                    .take(RIP_UP_LIMIT)
+                // Single neighbours first, then pairs and a triple of the nearest ones.
+                val groups = blockers.map { listOf(it) } +
+                    blockers.take(4).let { near -> near.indices.flatMap { i -> (i + 1 until near.size).map { j -> listOf(near[i], near[j]) } } } +
+                    listOfNotNull(blockers.take(3).takeIf { it.size == 3 })
+                for (group in groups) {
+                    if (budget-- <= 0) break
+                    group.forEach(::lift)
+                    val moved = mutableListOf<Dimension>()
+                    val mine = place(pipe)?.also { moved += it }
+                    val rest = mine != null && group.all { blocker ->
+                        place(network.pipesById.getValue(blocker.pipeId))?.also { moved += it } != null
+                    }
+                    if (rest) break
+                    moved.forEach(::lift)
+                    group.forEach(::restore)
+                }
+            }
+        }
+        val markStrokes = mutableListOf<IsoStroke>()
+        val markTexts = mutableListOf<IsoText>()
+        if (sheet.showElevations) {
+            elevations(network, sheet, projected, style, labeler, occupancy, markStrokes, markTexts)
+        }
+        risers.forEach(::place)
+        order.mapNotNull { placed[it.id] }.forEach { dimension ->
+            strokes += dimension.strokes
+            texts += dimension.text
+        }
+        if (sheet.showDimensions) {
+            // A run whose dimension found no place without overlapping carries its length along
+            // the run instead, the compact notation of pipe isometrics.
+            order.filter { it.id !in placed }.forEach { pipe ->
+                val length = network.length(pipe)
+                if (length < IsoNetwork.MIN_LENGTH_MM) return@forEach
+                label(
+                    pipe, labeler.length(length), projected.getValue(pipe.from), projected.getValue(pipe.to),
+                    sides.getValue(pipe.id), style, occupancy, texts,
+                    role = IsoRole.DIMENSION,
+                    colorArgb = if (pipe.id in selection.pipeIds) style.selectionArgb else style.inkArgb,
+                    heightMm = style.textHeightMm,
+                )
+            }
+        }
+        if (sheet.showSystemCodes) {
+            sheet.pipes.forEach { pipe ->
+                val a = projected[pipe.from] ?: return@forEach
+                val b = projected[pipe.to] ?: return@forEach
+                val side = sides[pipe.id] ?: return@forEach
+                val tag = listOfNotNull(labeler.pipeTag(pipe.spec), pipe.label).joinToString(" ").takeIf(String::isNotBlank)
+                if (tag != null) {
+                    label(
+                        pipe, tag, a, b, side, style, occupancy, texts,
+                        role = IsoRole.TAG,
+                        colorArgb = IsoSystemStyle.colorOf(pipe.spec),
+                        heightMm = style.textHeightMm * 0.85,
+                    )
+                }
+            }
+        }
+        strokes += symbolStrokes
+        dots += symbolDots
+        texts += symbolTexts
+        strokes += markStrokes
+        texts += markTexts
 
         sheet.nodes.forEach { node ->
             val p = projected[node.id] ?: return@forEach
@@ -226,19 +358,10 @@ object IsoSceneBuilder {
         }
 
         preview?.let { plan ->
-            val a = projection.project(plan.start)
-            val b = projection.project(plan.end)
-            strokes += IsoStroke(listOf(a, b), style.previewArgb, IsoWeight.THICK, IsoRole.PREVIEW, dashed = true)
-            val d = (b - a).normalized()
-            texts += IsoText(
-                labeler.length(plan.lengthMm),
-                (a + b) / 2.0 + d.perpendicular() * (style.textHeightMm * 1.1),
-                readableAngle(d),
-                style.textHeightMm * 1.15,
-                style.previewArgb,
-                IsoRole.PREVIEW,
-            )
-            dots += IsoDot(b, style.symbolMm * 0.25, style.previewArgb, filled = true, role = IsoRole.PREVIEW)
+            val extra = preview(sheet, plan, style, labeler)
+            strokes += extra.strokes
+            texts += extra.texts
+            dots += extra.dots
         }
 
         val bounds = Rect2.around(
@@ -250,11 +373,13 @@ object IsoSceneBuilder {
     }
 
     /**
-     * Side of a run that receives its dimension: the extension follows a model axis (the iso
-     * drafting convention) and the side with more free paper wins; on a tie the side facing
-     * away from the neighbouring runs is used.
+     * Where a run's dimension may go, best first. Extension lines follow a model axis (the
+     * iso drafting convention): vertical for horizontal runs, then the plan axes; for each
+     * axis the side with more free paper comes first, on a tie the side facing away from the
+     * neighbouring runs. A riser rising from a main gets its extensions along the other plan
+     * axis, because along the main they would lie on the main itself.
      */
-    private fun annotationSide(
+    private fun annotationSides(
         network: IsoNetwork,
         projection: IsoProjection,
         pipe: IsoPipe,
@@ -262,18 +387,11 @@ object IsoSceneBuilder {
         b: P2,
         projected: Map<IsoNodeId, P2>,
         centroid: P2,
-        obstacles: List<Pair<P2, P2>>,
+        occupancy: Occupancy,
         style: IsoSceneStyle,
-    ): Offset {
+    ): List<Offset> {
         val d = (b - a).normalized()
-        val from = network.position(pipe.from)
-        val to = network.position(pipe.to)
-        val horizontal = from != null && to != null && abs(to.z - from.z) < 1.0
-        val preferred = if (horizontal) listOf(IsoAxis.UP, IsoAxis.EAST, IsoAxis.NORTH) else listOf(IsoAxis.EAST, IsoAxis.NORTH, IsoAxis.UP)
-        val base = preferred
-            .map { projection.screenOf(it.unit).normalized() }
-            .firstOrNull { abs(d.cross(it)) > 0.35 }
-            ?: d.perpendicular()
+        val bases = axisOffsets(network, projection, pipe, projected).map { it.extension }.filterIndexed { index, _ -> index % 2 == 0 }
         val neighbours = (network.incident[pipe.from].orEmpty() + network.incident[pipe.to].orEmpty())
             .filter { it.id != pipe.id }
             .flatMap { listOfNotNull(projected[it.from], projected[it.to]) }
@@ -283,117 +401,348 @@ object IsoSceneBuilder {
             P2(neighbours.sumOf { it.x } / neighbours.size, neighbours.sumOf { it.y } / neighbours.size)
         }
         val away = (a + b) / 2.0 - reference
-        val heuristic = when {
-            away.length > 1e-9 -> if (away.dot(base) < 0.0) -1.0 else 1.0
-            else -> if (base.y < 0.0) -1.0 else 1.0
-        }
-        fun offset(sign: Double): Offset {
-            val extension = base * sign
-            var normal = d.perpendicular()
-            if (normal.dot(extension) < 0.0) normal = -normal
-            return Offset(extension, normal)
+        val cap = style.dimensionOffsetMm * 2.5
+        // Chained dimensions of runs meeting at a joint share their extension lines.
+        val adjacent = (network.incident[pipe.from].orEmpty() + network.incident[pipe.to].orEmpty()).mapTo(mutableSetOf()) { it.id }
+        val skip = { item: Occupancy.Item ->
+            (item.kind == Occupancy.Kind.RUN && item.pipeId == pipe.id) ||
+                ((item.kind == Occupancy.Kind.DIMENSION_LINE || item.kind == Occupancy.Kind.EXTENSION) && item.pipeId in adjacent)
         }
         fun clearance(side: Offset): Double {
             val shift = side.extension / abs(side.extension.dot(side.normal)).coerceAtLeast(0.35) * style.dimensionOffsetMm
             val start = a + shift
             val end = b + shift
-            val middle = (start + end) / 2.0
-            val probes = listOf(start, end, middle, (start + middle) / 2.0, (middle + end) / 2.0, middle + side.normal * (style.textHeightMm * 0.75))
-            return obstacles
-                .filterNot { (p, q) -> (p == a && q == b) || (p == b && q == a) }
-                .minOfOrNull { (p, q) -> probes.minOf { distanceToSegment(it, p, q).first } }
-                ?: Double.MAX_VALUE
+            val label = (start + end) / 2.0 + side.normal * (style.textHeightMm * 0.75)
+            val text = IsoText("0000", label, readableAngle(d), style.textHeightMm, style.inkArgb, IsoRole.DIMENSION)
+            return minOf(
+                occupancy.clearance(listOf(start, end), closed = false, cap = cap, skip = skip),
+                occupancy.clearance(textBox(text), closed = true, cap = cap, skip = skip),
+            )
         }
-        val cap = style.dimensionOffsetMm * 2.5
-        val preferredSide = offset(heuristic)
-        val otherSide = offset(-heuristic)
-        val preferredRoom = clearance(preferredSide).coerceAtMost(cap)
-        val otherRoom = clearance(otherSide).coerceAtMost(cap)
-        return if (otherRoom > preferredRoom * 1.15 + 1e-9) otherSide else preferredSide
+        return bases.flatMap { base ->
+            val heuristic = when {
+                away.length > 1e-9 -> if (away.dot(base) < 0.0) -1.0 else 1.0
+                else -> if (base.y < 0.0) -1.0 else 1.0
+            }
+            val preferredSide = offsetOf(base * heuristic, d)
+            val otherSide = offsetOf(base * -heuristic, d)
+            val preferredRoom = clearance(preferredSide).coerceAtMost(cap)
+            val otherRoom = clearance(otherSide).coerceAtMost(cap)
+            if (otherRoom > preferredRoom * 1.15 + 1e-9) listOf(otherSide, preferredSide) else listOf(preferredSide, otherSide)
+        }
     }
 
     /** Oblique extension direction (parallel to a model axis) and the screen normal on the same side. */
     private data class Offset(val extension: P2, val normal: P2)
 
-    /** Draws the dimension and returns its line, or null when the run is too short to dimension. */
+    /** A run's dimension: what is drawn and the paper it takes. */
+    private class Dimension(
+        val pipeId: IsoPipeId,
+        val side: Offset,
+        val strokes: List<IsoStroke>,
+        val text: IsoText,
+        val items: List<Occupancy.Item>,
+    )
+
+    private fun offsetOf(extension: P2, d: P2): Offset {
+        var normal = d.perpendicular()
+        if (normal.dot(extension) < 0.0) normal = -normal
+        return Offset(extension, normal)
+    }
+
+    /**
+     * Both sides of every model axis a dimension's extension lines may follow, in drafting
+     * preference: vertical extensions for horizontal runs, plan axes for vertical ones. Axes
+     * nearly parallel to the run on paper are left out.
+     */
+    private fun axisOffsets(network: IsoNetwork, projection: IsoProjection, pipe: IsoPipe, projected: Map<IsoNodeId, P2>): List<Offset> {
+        val a = projected[pipe.from] ?: return emptyList()
+        val b = projected[pipe.to] ?: return emptyList()
+        val d = (b - a).normalized()
+        val from = network.position(pipe.from)
+        val to = network.position(pipe.to)
+        val horizontal = from != null && to != null && abs(to.z - from.z) < 1.0
+        val preferred = if (horizontal) listOf(IsoAxis.UP, IsoAxis.EAST, IsoAxis.NORTH) else listOf(IsoAxis.EAST, IsoAxis.NORTH, IsoAxis.UP)
+        return preferred
+            .map { projection.screenOf(it.unit).normalized() }
+            .filter { abs(d.cross(it)) > 0.35 }
+            .ifEmpty { listOf(d.perpendicular()) }
+            .flatMap { base -> listOf(offsetOf(base, d), offsetOf(-base, d)) }
+    }
+
+    private fun isRiser(network: IsoNetwork, pipe: IsoPipe): Boolean {
+        val from = network.position(pipe.from) ?: return false
+        val to = network.position(pipe.to) ?: return false
+        return hypot(to.x - from.x, to.y - from.y) < 1.0 && abs(to.z - from.z) >= 1.0
+    }
+
+    /** True when an extension line on [side] would be drawn on top of a run leaving the same joint. */
+    private fun alongRun(network: IsoNetwork, pipe: IsoPipe, projected: Map<IsoNodeId, P2>, side: Offset): Boolean {
+        val direction = side.extension.normalized()
+        return listOf(pipe.from, pipe.to).any { node ->
+            val at = projected[node] ?: return@any false
+            network.incident[node].orEmpty().any { other ->
+                if (other.id == pipe.id) return@any false
+                val far = projected[network.other(other, node)] ?: return@any false
+                val towards = far - at
+                towards.length > 1e-9 && towards.normalized().dot(direction) > 0.996
+            }
+        }
+    }
+
+    /**
+     * Dimension of one run, placed on the first free tier (stacked dimension lines as in
+     * GOST 2.307 / ISO 129), trying [sides] in order on each tier. Dimensions never overlap:
+     * a value never touches anything; a dimension line never touches another dimension line,
+     * a text or a symbol, nor crosses another dimension's extension line except where it ends
+     * on it (stacked and chained dimensions share extension lines); an extension line never
+     * runs through a text or the middle of another dimension line. A dimension never sits
+     * across a run parallel to its own, where it would read as that run's. Crossing other runs,
+     * or an extension line lying on a run that leaves the same joint (the run then serves as the
+     * extension), is accepted only when every tier and side would. While level marks are shown
+     * a riser is dimensioned only on the first two tiers, since the marks already give its
+     * height. Returns the placement, not yet on the sheet, or null when the run is left
+     * without a dimension.
+     */
     private fun dimension(
         network: IsoNetwork,
         pipe: IsoPipe,
         a: P2,
         b: P2,
-        side: Offset,
+        sides: List<Offset>,
+        projected: Map<IsoNodeId, P2>,
         style: IsoSceneStyle,
         labeler: IsoLabeler,
         selected: Boolean,
-        strokes: MutableList<IsoStroke>,
-        texts: MutableList<IsoText>,
-    ): Pair<P2, P2>? {
+        elevationsShown: Boolean,
+        occupancy: Occupancy,
+    ): Dimension? {
         val length = network.length(pipe)
         val screenLength = a.distanceTo(b)
-        if (length < IsoNetwork.MIN_LENGTH_MM || screenLength < style.textHeightMm * 1.5) return null
+        val h = style.textHeightMm
+        if (length < IsoNetwork.MIN_LENGTH_MM || screenLength < h * 1.5) return null
         val d = (b - a) / screenLength
-        // The extension is oblique, so its offset is scaled to keep a constant normal distance.
-        val normalShare = abs(side.extension.dot(side.normal)).coerceAtLeast(0.35)
-        val e = side.extension / normalShare
-        val gap = style.dimensionOffsetMm * 0.15
-        val offset = style.dimensionOffsetMm
-        val overshoot = style.dimensionOffsetMm * 0.25
         val color = if (selected) style.selectionArgb else style.inkArgb
-        val start = a + e * offset
-        val end = b + e * offset
-        strokes += IsoStroke(listOf(a + e * gap, a + e * (offset + overshoot)), color, IsoWeight.THIN, IsoRole.DIMENSION, pipeId = pipe.id)
-        strokes += IsoStroke(listOf(b + e * gap, b + e * (offset + overshoot)), color, IsoWeight.THIN, IsoRole.DIMENSION, pipeId = pipe.id)
-        strokes += IsoStroke(listOf(start - d * (style.tickMm * 0.6), end + d * (style.tickMm * 0.6)), color, IsoWeight.THIN, IsoRole.DIMENSION, pipeId = pipe.id)
-        // Architectural 45° ticks (GOST 2.307 / ISO 129 oblique stroke).
+        val value = labeler.length(length)
+        val halfWidth = estimateWidth(value, h) / 2.0
+        val margin = h * 0.15
+        val gap = style.dimensionOffsetMm * 0.15
+        val overshoot = style.dimensionOffsetMm * 0.25
+        val spacing = maxOf(style.dimensionOffsetMm * 0.75, h * 1.8)
         val tick = rotate(d, 45.0) * (style.tickMm / 2.0)
-        listOf(start, end).forEach { point ->
-            strokes += IsoStroke(listOf(point - tick, point + tick), color, IsoWeight.MEDIUM, IsoRole.DIMENSION, pipeId = pipe.id)
+        val adjacent = (network.incident[pipe.from].orEmpty() + network.incident[pipe.to].orEmpty())
+            .mapTo(mutableSetOf()) { it.id }
+            .apply { remove(pipe.id) }
+
+        class Layout(val side: Offset, offset: Double, t: Double, textSide: Double) {
+            // The extension is oblique, so its offset is scaled to keep a constant normal distance.
+            private val e = side.extension / abs(side.extension.dot(side.normal)).coerceAtLeast(0.35)
+            private val start = a + e * offset
+            private val end = b + e * offset
+            val line = listOf(start - d * (style.tickMm * 0.6), end + d * (style.tickMm * 0.6))
+            val extensions = listOf(
+                listOf(a + e * gap, a + e * (offset + overshoot)),
+                listOf(b + e * gap, b + e * (offset + overshoot)),
+            )
+            // Architectural 45° ticks (GOST 2.307 / ISO 129 oblique stroke).
+            val ticks = listOf(start, end).map { listOf(it - tick, it + tick) }
+            val text = IsoText(
+                value,
+                start + (end - start) * t + side.normal * (textSide * h * 0.75),
+                readableAngle(d),
+                h,
+                color,
+                IsoRole.DIMENSION,
+                pipeId = pipe.id,
+            )
         }
-        texts += IsoText(
-            labeler.length(length),
-            (start + end) / 2.0 + side.normal * (style.textHeightMm * 0.75),
-            readableAngle(d),
-            style.textHeightMm,
-            color,
-            IsoRole.DIMENSION,
-            pipeId = pipe.id,
+
+        // Ends of dimension lines: the tick and the overshoot past the extension line.
+        val reach = style.tickMm * 1.5
+        fun ownRun(item: Occupancy.Item) = item.kind == Occupancy.Kind.RUN && item.pipeId == pipe.id
+
+        // A dimension across a run parallel to its own would read as that run's dimension.
+        fun parallel(item: Occupancy.Item): Boolean {
+            val v = item.points.last() - item.points.first()
+            val length = v.length
+            return length > 1e-9 && abs(d.cross(v / length)) < 0.05
+        }
+        fun chained(item: Occupancy.Item) = item.pipeId != null && item.pipeId in adjacent
+        val ends = setOf(pipe.from, pipe.to)
+        val incidentAt = ends.associateWith { node -> network.incident[node].orEmpty().mapTo(mutableSetOf()) { it.id } }
+
+        /**
+         * Null when the layout would make dimensions overlap: its value touching anything; its
+         * line touching another dimension's line or extension line, a text or a symbol; an
+         * extension line crossing another dimension line or a text. Lines and ticks standing on
+         * this run's own joints are shared with chained dimensions and are not conflicts.
+         * Otherwise a cost: crossing runs and symbols is accepted only when nothing better fits.
+         */
+        fun cost(layout: Layout): Int? {
+            if (occupancy.clearance(textBox(layout.text), closed = true, cap = margin, skip = ::ownRun) < margin) return null
+            // Ticks stand on this run's own joints, where only texts can be in their way.
+            if (layout.ticks.any { occupancy.clearance(it, closed = false, cap = margin) { item -> item.kind != Occupancy.Kind.TEXT } < margin }) {
+                return null
+            }
+            var cost = 0
+            for (item in occupancy.near(layout.line, margin)) {
+                if (ownRun(item) || (item.kind == Occupancy.Kind.EXTENSION && item.nodeId in ends)) continue
+                if (Occupancy.distance(layout.line, false, item) >= margin) continue
+                when (item.kind) {
+                    Occupancy.Kind.RUN -> if (parallel(item)) return null else cost += 2
+                    Occupancy.Kind.DIMENSION_LINE ->
+                        if (!(chained(item) && meetsAtJoint(layout.line, item.points, style.tickMm * 1.5, margin))) return null
+                    // Ending on another dimension's extension line shares it, as in stacked
+                    // dimensions; crossing one in the middle does not.
+                    Occupancy.Kind.EXTENSION ->
+                        if (!touchesOnlyNearEnds(layout.line, item.points, reach, margin)) return null
+                    Occupancy.Kind.SYMBOL, Occupancy.Kind.TEXT -> return null
+                }
+            }
+            layout.extensions.forEachIndexed { index, extension ->
+                val base = if (index == 0) pipe.from else pipe.to
+                val sharing = incidentAt.getValue(base)
+                for (item in occupancy.near(extension, margin)) {
+                    if (ownRun(item) || (item.kind != Occupancy.Kind.TEXT && item.pipeId != null && item.pipeId in sharing)) continue
+                    if (Occupancy.distance(extension, false, item) >= margin * 0.5) continue
+                    when (item.kind) {
+                        Occupancy.Kind.TEXT -> return null
+                        Occupancy.Kind.DIMENSION_LINE ->
+                            if (!touchesOnlyNearEnds(item.points, extension, reach, margin * 0.5)) return null
+                        Occupancy.Kind.RUN -> if (parallel(item)) return null else cost += 1
+                        Occupancy.Kind.SYMBOL -> cost += 1
+                        Occupancy.Kind.EXTENSION -> Unit
+                    }
+                }
+            }
+            return cost
+        }
+
+        // A riser's height is already in the level marks at both ends, so its dimension stays
+        // next to it or is left out rather than being pushed out across the sheet.
+        val riser = elevationsShown && isRiser(network, pipe)
+        val tiers = if (riser) RISER_TIERS else DIMENSION_TIERS
+        // Sides whose extension lines would lie on a neighbouring run come last and cost extra.
+        val lying = sides.filter { alongRun(network, pipe, projected, it) }.toSet()
+        val ordered = sides.sortedBy { it in lying }
+        var best: Pair<Layout, Int>? = null
+        search@ for (tier in 0 until tiers) {
+            val offset = style.dimensionOffsetMm + tier * spacing
+            for (side in ordered) {
+                // The value stands outside its line, or inside it when a parallel run's dimension
+                // takes the outside; it may slide along the line while it still stands over it.
+                for (textSide in listOf(1.0, -1.0)) {
+                    for (t in listOf(0.5, 0.32, 0.68)) {
+                        if (t != 0.5 && halfWidth > minOf(t, 1.0 - t) * screenLength) continue
+                        val layout = Layout(side, offset, t, textSide)
+                        val cost = (cost(layout) ?: continue) + (if (side in lying) ALONG_RUN_COST else 0) + (if (textSide < 0) 1 else 0)
+                        if (best == null || cost < best.second) best = layout to cost
+                        if (cost == 0) break@search
+                    }
+                }
+            }
+        }
+        val layout = best?.first ?: return null
+        val ext = Occupancy.Kind.EXTENSION
+        val strokes = listOf(
+            IsoStroke(layout.extensions[0], color, IsoWeight.THIN, IsoRole.DIMENSION, pipeId = pipe.id),
+            IsoStroke(layout.extensions[1], color, IsoWeight.THIN, IsoRole.DIMENSION, pipeId = pipe.id),
+            IsoStroke(layout.line, color, IsoWeight.THIN, IsoRole.DIMENSION, pipeId = pipe.id),
+            IsoStroke(layout.ticks[0], color, IsoWeight.MEDIUM, IsoRole.DIMENSION, pipeId = pipe.id),
+            IsoStroke(layout.ticks[1], color, IsoWeight.MEDIUM, IsoRole.DIMENSION, pipeId = pipe.id),
         )
-        return start to end
+        val items = listOf(
+            Occupancy.item(strokes[0], ext, pipe.from),
+            Occupancy.item(strokes[1], ext, pipe.to),
+            Occupancy.item(strokes[2], Occupancy.Kind.DIMENSION_LINE, null),
+            Occupancy.item(strokes[3], ext, pipe.from),
+            Occupancy.item(strokes[4], ext, pipe.to),
+            Occupancy.item(layout.text),
+        )
+        return Dimension(pipe.id, layout.side, strokes, layout.text, items)
     }
 
-    /** System code on the free side of the run, moved along it so it never covers a fitting symbol. */
-    private fun tag(
-        network: IsoNetwork,
+    /**
+     * True when [line] comes within [margin] of [other] only within [reach] of its own ends:
+     * a dimension line that ends on an extension line, never one cut through the middle.
+     */
+    private fun touchesOnlyNearEnds(line: List<P2>, other: List<P2>, reach: Double, margin: Double): Boolean {
+        if (line.size != 2) return false
+        val a = line[0]
+        val b = line[1]
+        val length = a.distanceTo(b)
+        if (length <= reach * 2.0) return true
+        val u = (b - a) / length
+        val inner = listOf(a + u * reach, b - u * reach)
+        return other.zipWithNext().all { (p, q) -> segmentDistance(inner[0], inner[1], p, q) >= margin }
+    }
+
+    /**
+     * Chained dimensions of runs meeting at a joint may touch only where they meet on their
+     * shared extension line: end to end along one line, or at a corner. Away from the joint,
+     * within [tolerance] of the meeting ends, they must keep [margin] apart.
+     */
+    private fun meetsAtJoint(line: List<P2>, other: List<P2>, tolerance: Double, margin: Double): Boolean {
+        if (line.size != 2 || other.size != 2) return false
+        val (mine, theirs) = line.flatMap { p -> other.map { q -> p to q } }.minBy { (p, q) -> p.distanceTo(q) }
+        if (mine.distanceTo(theirs) > tolerance * 1.5) return false
+        fun trimmed(segment: List<P2>, end: P2): Pair<P2, P2>? {
+            val far = if (segment[0] == end) segment[1] else segment[0]
+            val length = end.distanceTo(far)
+            if (length <= tolerance * 1.5) return null
+            return end + (far - end) * (tolerance * 1.5 / length) to far
+        }
+        val a = trimmed(line, mine) ?: return true
+        val b = trimmed(other, theirs) ?: return true
+        return segmentDistance(a.first, a.second, b.first, b.second) >= margin
+    }
+
+    /**
+     * Text along a run (its system code, or its length when no dimension fits): first on the
+     * side away from the dimension, then between the run and its dimension, at the first spot
+     * that covers nothing. A crowded run gets no text rather than an unreadable one; a code's
+     * colour and line type still tell the system, a length stays in the bill of materials.
+     */
+    private fun label(
         pipe: IsoPipe,
         text: String,
         a: P2,
         b: P2,
         side: Offset,
         style: IsoSceneStyle,
+        occupancy: Occupancy,
         texts: MutableList<IsoText>,
+        role: IsoRole,
+        colorArgb: Long,
+        heightMm: Double,
     ) {
         val screenLength = a.distanceTo(b)
-        val height = style.textHeightMm * 0.85
+        val height = heightMm
         val width = estimateWidth(text, height)
-        val needed = width + style.textHeightMm * 2.0
-        if (screenLength < needed) return
+        if (screenLength < width + style.textHeightMm * 2.0) return
         val d = (b - a) / screenLength
-        val symbols = network.componentsOn(pipe.id).map { a + (b - a) * it.offset }
-        val clearance = width / 2.0 + style.symbolMm * 0.7
-        val position = listOf(0.5, 0.3, 0.7, 0.2, 0.8)
-            .map { a + (b - a) * it }
-            .filter { center -> center.distanceTo(a) >= width / 2.0 && center.distanceTo(b) >= width / 2.0 }
-            .firstOrNull { center -> symbols.none { it.distanceTo(center) < clearance } }
-            ?: return
-        texts += IsoText(
-            text,
-            position - side.normal * (style.textHeightMm * 0.8),
-            readableAngle(d),
-            height,
-            IsoSystemStyle.colorOf(pipe.spec),
-            IsoRole.TAG,
-            pipeId = pipe.id,
-        )
+        val margin = style.textHeightMm * 0.2
+        val ownRun = { item: Occupancy.Item -> item.kind == Occupancy.Kind.RUN && item.pipeId == pipe.id }
+        for (sideSign in listOf(-1.0, 1.0)) {
+            for (t in listOf(0.5, 0.35, 0.65, 0.2, 0.8)) {
+                val center = a + (b - a) * t
+                if (center.distanceTo(a) < width / 2.0 || center.distanceTo(b) < width / 2.0) continue
+                val candidate = IsoText(
+                    text,
+                    center + side.normal * (sideSign * (height * 0.7 + style.textHeightMm * 0.25)),
+                    readableAngle(d),
+                    height,
+                    colorArgb,
+                    role,
+                    pipeId = pipe.id,
+                )
+                if (occupancy.clearance(textBox(candidate), closed = true, cap = margin * 2.0, skip = ownRun) >= margin) {
+                    texts += candidate
+                    occupancy.add(candidate)
+                    return
+                }
+            }
+        }
     }
 
     private fun reducer(
@@ -542,11 +891,12 @@ object IsoSceneBuilder {
         projected: Map<IsoNodeId, P2>,
         style: IsoSceneStyle,
         labeler: IsoLabeler,
-        obstacles: List<Pair<P2, P2>>,
+        occupancy: Occupancy,
         strokes: MutableList<IsoStroke>,
         texts: MutableList<IsoText>,
     ) {
         val marked = mutableListOf<P2>()
+        val h = style.textHeightMm
         sheet.nodes.forEach { node ->
             val incident = network.incident[node.id].orEmpty()
             val vertical = incident.any { pipe ->
@@ -557,62 +907,126 @@ object IsoSceneBuilder {
             val ends = incident.size == 1 && abs(node.position.z) >= 1.0
             if (!vertical && !ends) return@forEach
             val p = projected[node.id] ?: return@forEach
-            if (marked.any { it.distanceTo(p) < style.textHeightMm * 0.5 }) return@forEach
+            if (marked.any { it.distanceTo(p) < h * 0.5 }) return@forEach
             marked += p
-            val text = labeler.elevation(node.position.z)
-            val h = style.textHeightMm
-            val width = estimateWidth(text, h * 0.85) + h * 0.4
-            // GOST 2.307 level mark: open triangle on a leader with a shelf carrying the value,
-            // drawn in whichever of the four quadrants around the joint has the most free paper.
-            fun box(horizontal: Double, vertical: Double): List<P2> {
-                val apex = p + P2(horizontal * h * 0.9, 0.0)
-                val shelfY = apex.y + vertical * h * 0.75
-                val textY = shelfY + vertical * h * 0.6
-                val far = apex.x + horizontal * width
-                return listOf(
-                    apex,
-                    P2(far, shelfY),
-                    P2((apex.x + far) / 2.0, shelfY),
-                    P2(apex.x, textY + vertical * h * 0.45),
-                    P2((apex.x + far) / 2.0, textY),
-                    P2(far, textY + vertical * h * 0.45),
-                    P2((apex.x + far) / 2.0, textY + vertical * h * 0.45),
+            val value = labeler.elevation(node.position.z)
+            val width = estimateWidth(value, h * 0.85) + h * 0.4
+
+            // GOST 2.307 level mark: open triangle on a leader with a shelf carrying the value.
+            // The leader leaves the joint horizontally, or slanted when the corner is crowded.
+            val joined = incident.mapTo(mutableSetOf()) { it.id }
+            class Mark(sign: Double, flip: Double, reach: Double, rise: Double) {
+                val apex = p + P2(sign * h * reach, flip * h * rise)
+                val shelfY = apex.y + flip * h * 0.75
+                val leader = listOf(p, apex)
+                val triangle = listOf(apex, P2(apex.x - h * 0.42, shelfY), P2(apex.x + h * 0.42, shelfY))
+                val shelf = listOf(P2(apex.x, shelfY), P2(apex.x + sign * width, shelfY))
+                val text = IsoText(
+                    value,
+                    P2(apex.x + sign * h * 0.25, shelfY + flip * h * 0.6),
+                    0.0,
+                    h * 0.85,
+                    style.inkArgb,
+                    IsoRole.ELEVATION,
+                    if (sign > 0) IsoTextAlign.START else IsoTextAlign.END,
+                    nodeId = node.id,
                 )
+                val upperRight = sign > 0 && flip > 0
+                val leaderLength = p.distanceTo(apex)
+
+                /** Free paper around the value, shelf and triangle; zero when they touch anything. */
+                fun room(): Double {
+                    val value = occupancy.clearance(textBox(text), closed = true, cap = h)
+                    if (value < h * 0.25) return value
+                    val line = occupancy.clearance(shelf, closed = false, cap = h)
+                    if (line < h * 0.25) return line
+                    return minOf(value, line, occupancy.clearance(triangle, closed = true, cap = h))
+                }
+
+                /**
+                 * What the leader crosses, weighted: a dimension line counts ten, a run, symbol
+                 * or extension line one; null when it would cross a text. Runs meeting at the
+                 * joint are where the leader starts.
+                 */
+                fun crossings(): Int? {
+                    val whole = listOf(p, apex)
+                    val away = listOf(p + (apex - p) * (h * 0.4 / leaderLength.coerceAtLeast(h * 0.4)), apex)
+                    var count = 0
+                    for (item in occupancy.near(whole, h * 0.1)) {
+                        if (item.kind == Occupancy.Kind.RUN && item.pipeId in joined) continue
+                        // Near its own joint the leader meets the runs, symbols and extension lines
+                        // that stand there; texts and dimension lines are never touched at all.
+                        val atJoint = item.kind == Occupancy.Kind.RUN || item.kind == Occupancy.Kind.SYMBOL ||
+                            (item.kind == Occupancy.Kind.EXTENSION && item.nodeId == node.id)
+                        if (Occupancy.distance(if (atJoint) away else whole, false, item) >= h * 0.1) continue
+                        when (item.kind) {
+                            Occupancy.Kind.TEXT -> return null
+                            Occupancy.Kind.DIMENSION_LINE -> count += 10
+                            Occupancy.Kind.RUN, Occupancy.Kind.SYMBOL, Occupancy.Kind.EXTENSION -> count++
+                        }
+                    }
+                    return count
+                }
             }
-            fun room(horizontal: Double, vertical: Double): Double {
-                val probes = box(horizontal, vertical)
-                return obstacles.minOfOrNull { (s, e) -> probes.minOf { distanceToSegment(it, s, e).first } } ?: Double.MAX_VALUE
-            }
+
+            // The shortest clear leader that crosses nothing wins, the conventional upper right
+            // first among equals; then the clear one whose thin leader crosses the least. The
+            // mark itself never covers a dimension or a text: with no clear place it is left out.
             val quadrants = listOf(1.0 to 1.0, -1.0 to 1.0, 1.0 to -1.0, -1.0 to -1.0)
-            val best = quadrants.maxBy { (horizontal, vertical) ->
-                // A small bonus keeps the conventional upper-right mark when space is equal.
-                room(horizontal, vertical).coerceAtMost(h * 3.0) + if (horizontal > 0 && vertical > 0) h * 0.2 else 0.0
+            val candidates = listOf(0.9, 2.2, 3.6, 5.2, 7.0, 9.5)
+                .flatMap { reach -> listOf(0.0, 1.6, 3.2, 5.0).map { rise -> reach to rise } }
+                .sortedBy { (reach, rise) -> kotlin.math.hypot(reach, rise) }
+            var chosen: Mark? = null
+            var fallback: Pair<Mark, Int>? = null
+            for ((reach, rise) in candidates) {
+                val clear = quadrants
+                    .map { (sign, flip) -> Mark(sign, flip, reach, rise) }
+                    .mapNotNull { mark -> mark.room().takeIf { it >= h * 0.25 }?.let { room -> mark.crossings()?.let { Triple(mark, room, it) } } }
+                val clean = clear.filter { it.third == 0 }
+                if (clean.isNotEmpty()) {
+                    chosen = clean.maxBy { (mark, room, _) -> room + if (mark.upperRight) h * 0.2 else 0.0 }.first
+                    break
+                }
+                clear.minByOrNull { it.third }?.let { (mark, _, crossed) ->
+                    if (fallback == null || crossed < fallback.second) fallback = mark to crossed
+                }
             }
-            val sign = best.first
-            val flip = best.second
-            val apex = p + P2(sign * h * 0.9, 0.0)
-            val shelfY = apex.y + flip * h * 0.75
-            strokes += IsoStroke(listOf(p, apex), style.inkArgb, IsoWeight.THIN, IsoRole.ELEVATION, nodeId = node.id)
-            strokes += IsoStroke(
-                listOf(apex, P2(apex.x - h * 0.42, shelfY), P2(apex.x + h * 0.42, shelfY)),
-                style.inkArgb,
-                IsoWeight.THIN,
-                IsoRole.ELEVATION,
-                closed = true,
-                nodeId = node.id,
+            val mark = chosen ?: fallback?.first ?: return@forEach
+            val placed = listOf(
+                IsoStroke(mark.leader, style.inkArgb, IsoWeight.THIN, IsoRole.ELEVATION, nodeId = node.id),
+                IsoStroke(mark.triangle, style.inkArgb, IsoWeight.THIN, IsoRole.ELEVATION, closed = true, nodeId = node.id),
+                IsoStroke(mark.shelf, style.inkArgb, IsoWeight.THIN, IsoRole.ELEVATION, nodeId = node.id),
             )
-            strokes += IsoStroke(listOf(P2(apex.x, shelfY), P2(apex.x + sign * width, shelfY)), style.inkArgb, IsoWeight.THIN, IsoRole.ELEVATION, nodeId = node.id)
-            texts += IsoText(
-                text,
-                P2(apex.x + sign * h * 0.25, shelfY + flip * h * 0.6),
-                0.0,
-                h * 0.85,
-                style.inkArgb,
-                IsoRole.ELEVATION,
-                if (sign > 0) IsoTextAlign.START else IsoTextAlign.END,
-                nodeId = node.id,
-            )
+            strokes += placed
+            texts += mark.text
+            placed.forEach(occupancy::add)
+            occupancy.add(mark.text)
         }
+    }
+
+    /**
+     * The rubber-band run while a stroke is drawn: cheap, so a screen can draw it every frame
+     * over a scene laid out once.
+     */
+    fun preview(sheet: IsometricSheet, plan: RunPlan, style: IsoSceneStyle, labeler: IsoLabeler = DefaultIsoLabeler): IsoScene {
+        val projection = IsoProjection.of(sheet.projection)
+        val a = projection.project(plan.start)
+        val b = projection.project(plan.end)
+        val d = (b - a).normalized()
+        val text = IsoText(
+            labeler.length(plan.lengthMm),
+            (a + b) / 2.0 + d.perpendicular() * (style.textHeightMm * 1.1),
+            readableAngle(d),
+            style.textHeightMm * 1.15,
+            style.previewArgb,
+            IsoRole.PREVIEW,
+        )
+        return IsoScene(
+            strokes = listOf(IsoStroke(listOf(a, b), style.previewArgb, IsoWeight.THICK, IsoRole.PREVIEW, dashed = true)),
+            texts = listOf(text),
+            dots = listOf(IsoDot(b, style.symbolMm * 0.25, style.previewArgb, filled = true, role = IsoRole.PREVIEW)),
+            bounds = Rect2.around(listOf(a, b)),
+        )
     }
 
     /** Angle of [direction] turned by 180° when needed so that text never reads upside down. */
@@ -623,7 +1037,8 @@ object IsoSceneBuilder {
         return angle
     }
 
-    internal fun estimateWidth(text: String, heightMm: Double) = text.length * heightMm * 0.62
+    /** Advance of [text] at cap height [heightMm]; 0.84 caps per character covers Roboto, Inter and DejaVu. */
+    internal fun estimateWidth(text: String, heightMm: Double) = text.length * heightMm * 0.84
 
     /** Corner points of a text's box, for bounds. */
     internal fun textBox(text: IsoText): List<P2> {
@@ -635,7 +1050,8 @@ object IsoSceneBuilder {
             IsoTextAlign.CENTER -> -width / 2
             IsoTextAlign.END -> -width
         }
-        val half = text.heightMm * 0.6
+        // Mid-cap anchor: caps above, commas and Cyrillic descenders below.
+        val half = text.heightMm * 0.7
         return listOf(
             text.anchor + along * start - up * half,
             text.anchor + along * (start + width) - up * half,
@@ -654,4 +1070,118 @@ object IsoSceneBuilder {
             val angle = 2.0 * Math.PI * i / segments
             center + P2(cos(angle) * radius, sin(angle) * radius)
         }
+}
+
+/**
+ * Paper already used on a sheet: runs, dimension and leader lines, symbols and texts.
+ * Annotations ask how much free paper surrounds a candidate before they are placed. A coarse
+ * grid keeps each question local, so large schemes stay fast to redraw.
+ */
+internal class Occupancy(private val cell: Double) {
+    enum class Kind { RUN, DIMENSION_LINE, EXTENSION, SYMBOL, TEXT }
+
+    class Item(val points: List<P2>, val closed: Boolean, val kind: Kind, val pipeId: IsoPipeId?, val nodeId: IsoNodeId? = null) {
+        val minX = points.minOf { it.x }
+        val minY = points.minOf { it.y }
+        val maxX = points.maxOf { it.x }
+        val maxY = points.maxOf { it.y }
+        internal var visit = 0
+    }
+
+    private val cells = HashMap<Long, MutableList<Item>>()
+    private var visit = 0
+
+    private fun index(value: Double): Int = kotlin.math.floor(value / cell).coerceIn(-1.0e9, 1.0e9).toInt()
+    private fun key(x: Int, y: Int): Long = (x.toLong() shl 32) or (y.toLong() and 0xFFFF_FFFFL)
+
+    fun add(item: Item) {
+        for (x in index(item.minX)..index(item.maxX)) {
+            for (y in index(item.minY)..index(item.maxY)) cells.getOrPut(key(x, y)) { mutableListOf() } += item
+        }
+    }
+
+    fun add(stroke: IsoStroke, kind: Kind = kindOf(stroke.role), nodeId: IsoNodeId? = null) {
+        if (stroke.points.isEmpty()) return
+        add(item(stroke, kind, nodeId))
+    }
+
+    fun add(text: IsoText) = add(item(text))
+
+    fun remove(item: Item) {
+        for (x in index(item.minX)..index(item.maxX)) {
+            for (y in index(item.minY)..index(item.maxY)) cells[key(x, y)]?.removeAll { it === item }
+        }
+    }
+
+    fun add(dot: IsoDot) {
+        val r = dot.radiusMm
+        val c = dot.center
+        add(Item(listOf(c + P2(-r, -r), c + P2(r, -r), c + P2(r, r), c + P2(-r, r)), true, Kind.SYMBOL, null))
+    }
+
+    /** Items whose bounding boxes come within [margin] of the bounding box of [shape]. */
+    fun near(shape: List<P2>, margin: Double): List<Item> {
+        if (shape.isEmpty()) return emptyList()
+        visit++
+        val minX = shape.minOf { it.x } - margin
+        val minY = shape.minOf { it.y } - margin
+        val maxX = shape.maxOf { it.x } + margin
+        val maxY = shape.maxOf { it.y } + margin
+        val found = mutableListOf<Item>()
+        for (x in index(minX)..index(maxX)) {
+            for (y in index(minY)..index(maxY)) {
+                val bucket = cells[key(x, y)] ?: continue
+                for (item in bucket) {
+                    if (item.visit == visit) continue
+                    item.visit = visit
+                    if (item.maxX < minX || item.minX > maxX || item.maxY < minY || item.minY > maxY) continue
+                    found += item
+                }
+            }
+        }
+        return found
+    }
+
+    /**
+     * Distance from [shape] (a polyline, or a polygon when [closed]) to the nearest occupied
+     * item that [skip] does not exclude, at most [cap]; zero when they touch.
+     */
+    fun clearance(shape: List<P2>, closed: Boolean, cap: Double, skip: (Item) -> Boolean = { false }): Double {
+        var best = cap
+        for (item in near(shape, cap)) {
+            if (skip(item)) continue
+            best = minOf(best, distance(shape, closed, item))
+            if (best <= 0.0) return 0.0
+        }
+        return best
+    }
+
+    companion object {
+        fun item(stroke: IsoStroke, kind: Kind = kindOf(stroke.role), nodeId: IsoNodeId? = null) =
+            Item(stroke.points, (stroke.closed || stroke.filled) && stroke.points.size > 2, kind, stroke.pipeId, nodeId)
+
+        fun item(text: IsoText) = Item(IsoSceneBuilder.textBox(text), true, Kind.TEXT, text.pipeId)
+
+        fun kindOf(role: IsoRole) = when (role) {
+            IsoRole.PIPE -> Kind.RUN
+            IsoRole.DIMENSION -> Kind.DIMENSION_LINE
+            else -> Kind.SYMBOL
+        }
+
+        fun distance(shape: List<P2>, closed: Boolean, item: Item): Double = when {
+            closed && item.closed -> polygonDistance(shape, item.points)
+            closed -> pieces(item.points).minOf { (a, b) -> polygonSegmentDistance(shape, a, b) }
+            item.closed -> pieces(shape).minOf { (a, b) -> polygonSegmentDistance(item.points, a, b) }
+            else -> pieces(shape).minOf { (a, b) -> pieces(item.points).minOf { (c, d) -> segmentDistance(a, b, c, d) } }
+        }
+
+        /** True when the polyline [shape] crosses any edge of [item] at a single inner point. */
+        fun crosses(shape: List<P2>, item: Item): Boolean {
+            val edges = if (item.closed) item.points.zipWithNext() + (item.points.last() to item.points.first()) else pieces(item.points)
+            return pieces(shape).any { (a, b) -> edges.any { (c, d) -> segmentsCross(a, b, c, d) } }
+        }
+
+        private fun pieces(points: List<P2>): List<Pair<P2, P2>> =
+            points.zipWithNext().ifEmpty { listOf(points[0] to points[0]) }
+    }
 }
