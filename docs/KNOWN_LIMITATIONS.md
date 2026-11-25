@@ -2,6 +2,17 @@
 
 Date: 2026-08-15
 
+## Pipe isometric limitations (2026-11-24)
+
+- Joints cannot be dragged yet; geometry changes through exact lengths, splitting and
+  deleting runs.
+- Sewer slopes are not modelled: horizontal runs are exactly horizontal.
+- A scheme built from the plan is a one-time copy; later plan edits do not update it.
+- Isometric sheets export to SVG and DXF; there is no PDF sheet with a title block yet.
+- Inch pipe sizes in free text (`3/4"`) are not recognised; pick DN manually.
+- Dimensions never overlap; where none fits, the length is written along the run, and in
+  the densest spots only the bill of materials and the selected pipe show it.
+
 ## Fabrication workshop alpha limitations
 
 - The workshop currently generates the complete two-elbow, two-flange

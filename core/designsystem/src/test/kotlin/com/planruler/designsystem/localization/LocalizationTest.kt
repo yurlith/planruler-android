@@ -103,6 +103,24 @@ class LocalizationTest {
         assertEquals("25 проектов", formatProjectCount(AppLanguage.RUSSIAN, 25))
     }
 
+    @Test
+    fun `isometric copy is complete in every language and never overrides older keys`() {
+        val keys = isometricGermanUi.keys
+        assertTrue(keys.size >= 80)
+        assertEquals(keys, isometricPolishUi.keys)
+        assertEquals(keys, isometricFrenchUi.keys)
+        assertEquals(keys, isometricItalianUi.keys)
+        listOf(isometricGermanUi, isometricPolishUi, isometricFrenchUi, isometricItalianUi).forEach { map ->
+            assertFalse(map.values.any(String::isBlank))
+        }
+        val older = generatedEnglishKeySet() + baseGermanUi.keys + basePolishUi.keys
+        assertEquals(emptySet<String>(), keys.intersect(older))
+        assertEquals("Kugelhahn", localizedUi(AppLanguage.GERMAN, "Кран шаровой", "Ball valve"))
+        assertEquals("Kolano", localizedUi(AppLanguage.POLISH, "Отвод", "Elbow"))
+        assertEquals("Isométrie", localizedUi(AppLanguage.FRENCH, "Изометрия", "Isometric"))
+        assertEquals("Collettore", localizedUi(AppLanguage.ITALIAN, "Коллектор", "Manifold"))
+    }
+
     private fun generatedEnglishKeySet(): Set<String> =
         generatedGermanUi.keys + generatedPolishUi.keys + generatedFrenchUi.keys + generatedItalianUi.keys
 }

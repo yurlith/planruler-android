@@ -26,6 +26,7 @@ import com.planruler.model.MeasurementReviewStatus
 import com.planruler.model.PlanProject
 import com.planruler.model.calculateTakeoffTotals
 import com.planruler.model.currentPageSource
+import com.planruler.model.verticalLengthMm
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -68,6 +69,21 @@ class AndroidExportGateway(context: Context) : ExportGateway {
             ExportResult.Error(ExportError.Io(e.message ?: "Export failed"))
         } finally {
             temporary.delete()
+        }
+    }
+
+    override suspend fun exportText(targetUri: String, content: String): ExportResult = withContext(Dispatchers.IO) {
+        try {
+            // "wt": truncate an existing document instead of leaving a stale tail behind.
+            resolver.openOutputStream(Uri.parse(targetUri), "wt").use { target ->
+                requireNotNull(target)
+                target.write(content.toByteArray(Charsets.UTF_8))
+            }
+            ExportResult.Success
+        } catch (_: SecurityException) {
+            ExportResult.Error(ExportError.PermissionDenied)
+        } catch (e: Exception) {
+            ExportResult.Error(ExportError.Io(e.message ?: "Export failed"))
         }
     }
 
@@ -565,8 +581,10 @@ class AndroidExportGateway(context: Context) : ExportGateway {
 
     private fun evaluate(measurement: Measurement, calibration: Calibration?, unit: LengthUnit): Values {
         val factor = calibration?.metersPerDocumentUnit ?: 0.0
+        // Risers and drops stored on a run are installed length, as on screen and in totals.
+        val verticalMeters = if (calibration == null) 0.0 else measurement.verticalLengthMm / 1_000.0
         val lengthMeters = measurement.points.zipWithNext()
-            .sumOf { (start, end) -> start.distanceTo(end) } * factor
+            .sumOf { (start, end) -> start.distanceTo(end) } * factor + verticalMeters
         fun number(value: Double) = "%.3f".format(java.util.Locale.US, value)
         fun length(value: Double) = number(unit.fromMeters(value))
         fun polygonArea(): Double {

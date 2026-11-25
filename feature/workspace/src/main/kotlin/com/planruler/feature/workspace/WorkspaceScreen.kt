@@ -91,6 +91,7 @@ fun WorkspaceScreen(
     onExport: (ExportFormat, ExportPageSelection, Int, Int) -> Unit,
     onImportRevision: () -> Unit,
     onCalculateAssembly: () -> Unit,
+    onExportIsometric: (IsometricExportFormat) -> Unit = {},
 ) {
     val text = remember(settings.language) { Wt(settings.language) }
     val ui by viewModel.ui.collectAsState()
@@ -127,6 +128,8 @@ fun WorkspaceScreen(
     var scaleWarned by remember { mutableStateOf(false) }
     var templateEditor by remember { mutableStateOf<TakeoffTemplate?>(null) }
     var exactMeasurement by remember { mutableStateOf<Measurement?>(null) }
+    var riseTarget by remember { mutableStateOf<Pair<MeasurementId, Int>?>(null) }
+    var isometricOpen by remember { mutableStateOf(false) }
 
     fun haptic(constant: Int) {
         if (settings.haptics) view.performHapticFeedback(constant)
@@ -309,6 +312,27 @@ fun WorkspaceScreen(
         haptic(HapticFeedbackConstants.LONG_PRESS)
     }
 
+    fun openIsometric() {
+        if (draft != null) viewModel.cancel()
+        viewModel.save()
+        viewModel.openIsometric(text.isometric)
+        projectMenu = false
+        overlay = null
+        isometricOpen = true
+    }
+
+    if (isometricOpen) {
+        // The plan stays loaded underneath; leaving the editor returns to the same view.
+        IsometricEditorScreen(
+            viewModel = viewModel,
+            settings = settings,
+            snackbar = snackbar,
+            onClose = { isometricOpen = false },
+            onExport = onExportIsometric,
+        )
+        return
+    }
+
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         containerColor = MaterialTheme.colorScheme.background,
@@ -348,6 +372,10 @@ fun WorkspaceScreen(
                             DropdownMenuItem(
                                 text = { Text(text.schedule) },
                                 onClick = { projectMenu = false; overlay = WorkspaceOverlay.SCHEDULE },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(text.isometric) },
+                                onClick = { openIsometric() },
                             )
                             DropdownMenuItem(
                                 text = { Text(text.layers) },
@@ -430,7 +458,11 @@ fun WorkspaceScreen(
             Column {
                 FieldSummaryStrip(
                     lastValue = fieldSummary.lastMeasurement?.let(viewModel::value).orEmpty(),
-                    materialTotal = fieldTotalValue(fieldSummary.totals, text.pieces),
+                    materialTotal = fieldTotalWithElbows(
+                        fieldTotalValue(fieldSummary.totals, text.pieces),
+                        fieldSummary.elbows,
+                        text.elbowsShort,
+                    ),
                     materialName = fieldSummary.material,
                     canCalculateAssembly = fieldSummary.assemblySource != null,
                     text = text,
@@ -777,6 +809,9 @@ fun WorkspaceScreen(
                                 selectedVertex?.let { viewModel.removeVertex(selected.id, it) }
                                 selectedVertex = null
                             },
+                            onRise = {
+                                riseTarget = selected.id to (selectedVertex ?: selected.points.lastIndex)
+                            },
                             onDelete = { if (settings.confirmDelete) confirmDelete = true else deleteSelected() },
                         )
                     }
@@ -1015,6 +1050,7 @@ fun WorkspaceScreen(
             focusMode = focusMode,
             onTool = { selectTool(it) },
             onSchedule = { overlay = WorkspaceOverlay.SCHEDULE },
+            onIsometric = { openIsometric() },
             onExport = { overlay = WorkspaceOverlay.EXPORT },
             onFocus = { focusMode = !focusMode; overlay = null },
             onDismiss = { overlay = null },
@@ -1093,6 +1129,23 @@ fun WorkspaceScreen(
         )
     }
 
+    riseTarget?.let { (id, index) ->
+        engine.measurements.firstOrNull { it.id == id && index in it.points.indices }?.let { measurement ->
+            PipeRiseDialog(
+                pointNumber = index + 1,
+                currentRiseMm = measurement.route?.riseAt(index) ?: 0.0,
+                text = text,
+                onDismiss = { riseTarget = null },
+                onApply = { riseMm ->
+                    if (viewModel.setVertexRise(id, index, riseMm)) {
+                        riseTarget = null
+                        haptic(HapticFeedbackConstants.VIRTUAL_KEY)
+                    }
+                },
+            )
+        }
+    }
+
     exactMeasurement?.let { measurement ->
         ExactLengthDialog(
             currentLength = viewModel.value(measurement),
@@ -1119,6 +1172,7 @@ private fun SelectionBar(
     onExactLength: () -> Unit,
     onInsertVertex: () -> Unit,
     onRemoveVertex: () -> Unit,
+    onRise: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Row(
@@ -1134,6 +1188,10 @@ private fun SelectionBar(
         if (vertexIndex != null && measurement.type in setOf(MeasurementType.POLYLINE, MeasurementType.AREA)) {
             TextButton(onInsertVertex) { Text(text.insertVertex) }
             TextButton(onRemoveVertex) { Text(text.removeVertex) }
+        }
+        if (measurement.type == MeasurementType.DISTANCE || measurement.type == MeasurementType.POLYLINE) {
+            // Without a picked vertex the leg goes at the end of the run, where risers usually are.
+            TextButton(onRise) { Text(text.riseDrop) }
         }
         TextButton(onDelete) { Text(text.delete, color = MaterialTheme.colorScheme.error) }
     }

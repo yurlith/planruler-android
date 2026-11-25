@@ -71,4 +71,13 @@ sealed interface ExportResult {
     data object Success : ExportResult
     data class Error(val error: ExportError) : ExportResult
 }
-interface ExportGateway { suspend fun export(request: ExportRequest): ExportResult }
+interface ExportGateway {
+    suspend fun export(request: ExportRequest): ExportResult
+
+    /**
+     * Writes an already rendered text document (an isometric SVG or DXF, a bill of
+     * materials CSV) to a destination the user chose. UTF-8, overwriting the target.
+     */
+    suspend fun exportText(targetUri: String, content: String): ExportResult =
+        ExportResult.Error(ExportError.Io("Text export is not supported"))
+}

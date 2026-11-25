@@ -26,6 +26,7 @@ import com.planruler.feature.projects.ProjectsTab
 import com.planruler.feature.pipecalculator.PipeCalculatorScreen
 import com.planruler.feature.crm.CrmScreen
 import com.planruler.feature.settings.SettingsScreen
+import com.planruler.feature.workspace.IsometricExportFormat
 import com.planruler.feature.workspace.WorkspaceScreen
 import com.planruler.feature.workspace.WorkspaceViewModel
 import com.planruler.model.AppSettings
@@ -330,6 +331,15 @@ private fun PlanRulerRoot(
                 vm.export(it.toString(), ExportFormat.JSON, pendingPageSelection, pendingFirstPage, pendingLastPage)
             }
         }
+        val isoSvgExporter = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("image/svg+xml"),
+        ) { uri -> uri?.let { vm.exportIsometric(it.toString(), IsometricExportFormat.SVG) } }
+        val isoDxfExporter = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/octet-stream"),
+        ) { uri -> uri?.let { vm.exportIsometric(it.toString(), IsometricExportFormat.DXF) } }
+        val isoCsvExporter = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("text/csv"),
+        ) { uri -> uri?.let { vm.exportIsometric(it.toString(), IsometricExportFormat.CSV) } }
         val revisionImporter = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
             uri?.let {
                 runCatching {
@@ -380,6 +390,14 @@ private fun PlanRulerRoot(
                 importMime = null
                 workspaceKey = null
                 refresh++
+            },
+            onExportIsometric = { format ->
+                val name = vm.isometricExportName(format)
+                when (format) {
+                    IsometricExportFormat.SVG -> isoSvgExporter.launch(name)
+                    IsometricExportFormat.DXF -> isoDxfExporter.launch(name)
+                    IsometricExportFormat.CSV -> isoCsvExporter.launch(name)
+                }
             },
         )
     }

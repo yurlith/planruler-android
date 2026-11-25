@@ -696,6 +696,34 @@ private fun DrawScope.drawMeasurement(
             drawCircle(color, radius, point, style = Stroke(max(2f, stroke * 0.6f)))
         }
     }
+    // Risers and drops use the plan convention: a dot comes up towards the reader, a cross goes down.
+    measurement.route?.takeIf { it.hasRises }?.let { route ->
+        val line = max(2f, stroke * 0.6f)
+        points.forEachIndexed { index, point ->
+            val rise = route.riseAt(index)
+            if (rise == 0.0) return@forEachIndexed
+            val radius = handleRadiusPx * 1.3f
+            drawCircle(colors.handleFill, radius, point)
+            drawCircle(color, radius, point, style = Stroke(line))
+            if (rise > 0.0) {
+                drawCircle(color, radius * 0.35f, point)
+            } else {
+                val d = radius * 0.6f
+                drawLine(color, Offset(point.x - d, point.y - d), Offset(point.x + d, point.y + d), strokeWidth = line)
+                drawLine(color, Offset(point.x - d, point.y + d), Offset(point.x + d, point.y - d), strokeWidth = line)
+            }
+            if (labelTextPx > 0f) {
+                drawLabel(
+                    riseLabel(rise),
+                    Offset(point.x, point.y + labelTextPx * 1.8f + 12f),
+                    measurement.points[index],
+                    page,
+                    colors,
+                    labelTextPx * 0.8f,
+                )
+            }
+        }
+    }
     // Segment lengths sit on their own segment, so a polyline reads as a chain of runs.
     if (segmentLabels.isNotEmpty() && labelTextPx > 0f) {
         points.zipWithNext().forEachIndexed { index, (a, b) ->

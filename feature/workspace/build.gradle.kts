@@ -21,9 +21,12 @@ dependencies {
     implementation(project(":core:document-api"))
     implementation(project(":core:project-api"))
     implementation(project(":core:export-api"))
+    implementation(project(":core:isometric"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    // BackHandler: system back leaves the isometric editor before it leaves the project.
+    implementation(libs.androidx.activity.compose)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.material3)

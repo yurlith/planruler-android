@@ -178,7 +178,10 @@ class DefaultMeasurementEngine(
             return EngineResult.Error(MeasurementError.InvalidGeometry("A vertex can only be inserted into a polyline or area"))
         }
         val points = measurement.points.toMutableList().apply { add(afterIndex + 1, point) }
-        val updated = measurement.copy(points = points)
+        val updated = measurement.copy(
+            points = points,
+            route = measurement.route?.afterInsert(afterIndex, measurement.points.size),
+        )
         if (updated.type == MeasurementType.AREA && Geometry.selfIntersects(points)) {
             return EngineResult.Error(MeasurementError.InvalidGeometry("Polygon is self-intersecting"))
         }
@@ -199,7 +202,40 @@ class DefaultMeasurementEngine(
         if (measurement.points.size <= minimum) {
             return EngineResult.Error(MeasurementError.InvalidGeometry("The measurement requires at least $minimum points"))
         }
-        replace(measurement.copy(points = measurement.points.filterIndexed { pointIndex, _ -> pointIndex != index }))
+        replace(
+            measurement.copy(
+                points = measurement.points.filterIndexed { pointIndex, _ -> pointIndex != index },
+                route = measurement.route?.afterRemove(index, measurement.points.size),
+            ),
+        )
+        return EngineResult.Ok(Unit)
+    }
+
+    override fun setVertexRise(id: MeasurementId, index: Int, riseMm: Double): EngineResult<Unit> {
+        val measurement = measurement(id) ?: return EngineResult.Error(MeasurementError.NotFound(id))
+        if (measurement.type != MeasurementType.POLYLINE && measurement.type != MeasurementType.DISTANCE) {
+            return EngineResult.Error(MeasurementError.InvalidGeometry("Vertical legs belong to runs only"))
+        }
+        if (index !in measurement.points.indices) {
+            return EngineResult.Error(MeasurementError.InvalidGeometry("Vertex out of range"))
+        }
+        if (!riseMm.isFinite() || kotlin.math.abs(riseMm) > MAX_RISE_MM) {
+            return EngineResult.Error(MeasurementError.InvalidGeometry("Vertical leg is out of range"))
+        }
+        val route = (measurement.route ?: PipeRoute()).withRise(index, riseMm, measurement.points.size)
+        replace(measurement.copy(route = route))
+        return EngineResult.Ok(Unit)
+    }
+
+    override fun setRouteStartElevation(id: MeasurementId, elevationMm: Double): EngineResult<Unit> {
+        val measurement = measurement(id) ?: return EngineResult.Error(MeasurementError.NotFound(id))
+        if (measurement.type != MeasurementType.POLYLINE && measurement.type != MeasurementType.DISTANCE) {
+            return EngineResult.Error(MeasurementError.InvalidGeometry("Vertical legs belong to runs only"))
+        }
+        if (!elevationMm.isFinite() || kotlin.math.abs(elevationMm) > MAX_RISE_MM) {
+            return EngineResult.Error(MeasurementError.InvalidGeometry("Elevation is out of range"))
+        }
+        replace(measurement.copy(route = (measurement.route ?: PipeRoute()).copy(startElevationMm = elevationMm)))
         return EngineResult.Ok(Unit)
     }
 
@@ -428,7 +464,8 @@ class DefaultMeasurementEngine(
             when (measurement.type) {
                 MeasurementType.DISTANCE, MeasurementType.POLYLINE -> {
                     val segments = measurement.points.zipWithNext().map { (a, b) -> a.distanceTo(b) * factor }
-                    MeasureValue.Length(segments.sum(), segments)
+                    // Risers and drops are installed length too; segments stay the plan runs.
+                    MeasureValue.Length(segments.sum() + measurement.verticalLengthMm / 1_000.0, segments)
                 }
                 MeasurementType.AREA -> MeasureValue.Area(
                     Geometry.polygonArea(measurement.points) * factor * factor,
@@ -480,4 +517,9 @@ class DefaultMeasurementEngine(
     private fun replace(measurement: Measurement) =
         mutate { state -> state.copy(measurements = state.measurements.map { if (it.id == measurement.id) measurement else it }) }
     private data class EditSession(val original: EngineState, val id: MeasurementId)
+
+    private companion object {
+        /** 100 m: anything taller is a typing error, not a riser. */
+        const val MAX_RISE_MM = 100_000.0
+    }
 }
