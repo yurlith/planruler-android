@@ -111,7 +111,7 @@ class IsometricWorkspaceTest {
         session.edit { addComponent(IsoComponentKind.BALL_VALVE, main.pipeId, 0.5) }
         val sheet = session.sheets.value.single()
         val csv = isometricDocument(sheet, IsometricExportFormat.CSV, Wt(AppLanguage.RUSSIAN), AppLanguage.RUSSIAN, ";")
-        assertTrue(csv.startsWith("﻿"))
+        assertTrue(csv.startsWith("\uFEFF"))
         val lines = csv.trimEnd().lines()
         assertEquals(5, lines.size) // header, pipe, elbow, open ends (one line, 2 pcs), valve
         assertTrue(lines.any { "Открытый конец" in it && it.contains(";2;") })

@@ -203,7 +203,7 @@ fun isometricDocument(
             listOf(it.section, it.item, it.system, it.size, it.material, it.quantity, it.unit)
         }
         // A byte-order mark lets spreadsheet apps detect UTF-8 (Cyrillic, Polish diacritics).
-        "﻿" + (listOf(header) + rows).joinToString("\r\n") { row -> row.joinToString(delimiter, transform = ::cell) } + "\r\n"
+        "\uFEFF" + (listOf(header) + rows).joinToString("\r\n") { row -> row.joinToString(delimiter, transform = ::cell) } + "\r\n"
     }
     IsometricExportFormat.SVG, IsometricExportFormat.DXF -> {
         val style = IsoSceneStyle.forPaper(IsoExport.paperScaleFor(sheet))
