@@ -24,12 +24,16 @@ class IsometricCompletionJourneyTest {
     @get:Rule val compose = createAndroidComposeRule<MainActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val repository get() = FileProjectRepository(context.filesDir.resolve("projects"))
-    private val id = ProjectId("completion-test")
+    // Activity recreation retains ViewModels; each fixture needs a fresh workspace key.
+    private val id = ProjectId("completion-${java.util.UUID.randomUUID()}")
 
     @Before fun seedPhotoAndIsometric() {
         bringPlanRulerToForeground()
         context.getSharedPreferences("planruler-ui-state", 0).edit().clear().commit()
         context.getSharedPreferences("planruler-settings", 0).edit().clear().putString("language", "ENGLISH").commit()
+        // Reset navigation before replacing fixtures from a previous invocation.
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
         context.filesDir.resolve("projects").apply { deleteRecursively(); mkdirs() }
         val photo = File(context.filesDir, "completion-photo.png")
         val bitmap = Bitmap.createBitmap(1200, 800, Bitmap.Config.ARGB_8888)
