@@ -81,7 +81,10 @@ class IsometricCompletionJourneyTest {
         assertTrue(stored().isometrics.single().pipes.first().spec.material!!.contains("60.3"))
         compose.waitUntil(5_000) { compose.onAllNodesWithTag("pipe-catalog-search").fetchSemanticsNodes().isEmpty() }
         compose.waitForIdle()
-        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).takeScreenshot(File(context.getExternalFilesDir(null), "isometric-editor.png"))
+        UiDevice.getInstance(InstrumentationRegistry.getInstrumentation()).apply {
+            waitForIdle()
+            takeScreenshot(File(context.getExternalFilesDir(null), "isometric-editor.png"))
+        }
         compose.activityRule.scenario.recreate()
         compose.waitUntil(10_000) { compose.onAllNodesWithTag(PlanRulerTestTags.WorkspaceCanvas).fetchSemanticsNodes().isNotEmpty() }
         assertEquals(-1000.0, stored().isometrics.single().nodes.first().position.x, 0.0)
