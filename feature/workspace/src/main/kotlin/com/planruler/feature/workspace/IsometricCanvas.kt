@@ -109,6 +109,7 @@ internal fun IsometricCanvas(
     onDrag: (P2) -> Unit,
     onDragEnd: () -> Unit,
     onDragCancel: () -> Unit,
+    movingSheet: IsometricSheet? = null,
     modifier: Modifier = Modifier,
 ) {
     val density = LocalDensity.current
@@ -139,6 +140,12 @@ internal fun IsometricCanvas(
     }
     val rubberBand = remember(sheet, preview, style, labeler) {
         preview?.let { IsoSceneBuilder.preview(sheet, it, style, labeler) }
+    }
+    // Only cheap pipe geometry follows a node gesture; annotations are laid out after release.
+    val movingScene = remember(movingSheet, style, selection, labeler) {
+        movingSheet?.let {
+            IsoSceneBuilder.build(it.copy(showDimensions = false, showElevations = false, showSystemCodes = false), style, labeler, selection)
+        }
     }
 
     Canvas(
@@ -179,7 +186,7 @@ internal fun IsometricCanvas(
         drawRect(PAPER)
         val transform = isoTransform(this.size.width.toDouble(), this.size.height.toDouble(), viewport)
         drawGrid(sheet, transform, zoom)
-        listOfNotNull(scene, rubberBand).forEach { layer ->
+        listOfNotNull(movingScene ?: scene, rubberBand).forEach { layer ->
             layer.strokes.forEach { stroke -> drawIsoStroke(stroke, transform) }
             layer.dots.forEach { dot ->
                 val center = transform.toScreen(dot.center)

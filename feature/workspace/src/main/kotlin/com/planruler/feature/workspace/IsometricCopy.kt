@@ -19,7 +19,7 @@ import kotlin.math.atan2
 import kotlin.math.roundToInt
 
 /** What an isometric is written to. */
-enum class IsometricExportFormat(val extension: String) { SVG("svg"), DXF("dxf"), CSV("csv") }
+enum class IsometricExportFormat(val extension: String) { PDF("pdf"), SVG("svg"), DXF("dxf"), CSV("csv") }
 
 private val UNSAFE_FILE_CHARS = Regex("[\\\\/:*?\"<>|\\p{Cntrl}]+")
 
@@ -190,6 +190,7 @@ fun isometricDocument(
     language: AppLanguage,
     csvDelimiter: String = ";",
 ): String = when (format) {
+    IsometricExportFormat.PDF -> error("PDF is a binary document; use ExportGateway.exportIsometricPdf")
     IsometricExportFormat.CSV -> {
         val delimiter = csvDelimiter.ifEmpty { ";" }
         fun cell(value: String) =

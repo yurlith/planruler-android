@@ -275,7 +275,7 @@ class Wt(private val language: AppLanguage) {
     val calibrationByRatioHint
         get() = t("Для векторных PDF с известным печатным масштабом", "For vector PDFs with a known printed scale")
     val calibrationDrawHint
-        get() = t("Коснитесь двух точек известного расстояния", "Tap the two ends of a known distance")
+        get() = t("Проведите опорный отрезок с лупой или коснитесь двух его концов", "Drag a reference with the magnifier or tap its two ends")
     val verificationDrawHint
         get() = t("Коснитесь концов другого известного отрезка", "Tap the ends of another known segment")
     val knownLength get() = t("Известная длина", "Known length")
@@ -287,7 +287,7 @@ class Wt(private val language: AppLanguage) {
     val redrawPoints get() = t("Выбрать точки заново", "Pick the points again")
     val calibrationSaved get() = t("Калибровка сохранена", "Calibration saved")
     val imageCalibration
-        get() = t("Для изображения доступна только ручная калибровка.", "Images support manual calibration only.")
+        get() = t("Фото или скан: выберите длинный размер на плане и введите его значение. Снимайте лист ровно, без перспективы.", "Photo or scan: choose a long dimension and enter its value. Keep the sheet flat and the camera square to it.")
     val printedScale get() = t("Печатный масштаб", "Printed scale")
     val printedScaleSure get() = t("Печаталось без изменения размера?", "Printed without resizing?")
     val yes get() = t("Да", "Yes")
@@ -695,6 +695,12 @@ class Wt(private val language: AppLanguage) {
     val isoLevels get() = t("Отметки уровней", "Level marks")
     val isoSystemCodes get() = t("Обозначения систем", "System codes")
     val isoExportSvg get() = t("Экспорт SVG", "Export SVG")
+    val isoExportPdf get() = t("Экспорт PDF", "Export PDF")
+    val pipeCatalog get() = t("Каталог труб", "Pipe catalog")
+    val pipeSearch get() = t("Поиск DN, диаметра, материала", "Search DN, diameter, material")
+    val pipeCatalogHint get() = t("Выберите трубу для заполнения материала и размеров. Свои размеры можно ввести вручную и сохранить в шаблоне.", "Choose a pipe to fill its material and dimensions. Custom sizes can be entered manually and saved in a template.")
+    val pipeNoMatches get() = t("Трубы не найдены", "No matching pipes")
+    val isoMoveNodeHint get() = t("Перетащите узел вдоль X, Y или Z · длина привязана к сетке", "Drag a node along X, Y or Z · distance snaps to the grid")
     val isoExportDxf get() = t("Экспорт DXF", "Export DXF")
     val isoExportCsv get() = t("Ведомость в CSV", "Bill of materials CSV")
     val isoSheets get() = t("Листы изометрии", "Isometric sheets")

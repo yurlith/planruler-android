@@ -80,4 +80,8 @@ interface ExportGateway {
      */
     suspend fun exportText(targetUri: String, content: String): ExportResult =
         ExportResult.Error(ExportError.Io("Text export is not supported"))
+
+    /** A vector PDF; the caller supplies the same localised drawing used by SVG and the screen. */
+    suspend fun exportIsometricPdf(targetUri: String, title: String, drawing: com.planruler.isometric.IsoPaperDrawing): ExportResult =
+        ExportResult.Error(ExportError.Io("Isometric PDF export is not supported"))
 }

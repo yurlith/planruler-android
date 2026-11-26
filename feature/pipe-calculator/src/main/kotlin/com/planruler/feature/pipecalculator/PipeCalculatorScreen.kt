@@ -57,6 +57,9 @@ import com.planruler.pipecalculator.PipeDimensions
 import com.planruler.pipecalculator.TwoElbowAssemblyInput
 import com.planruler.pipecalculator.TwoElbowAssemblyResult
 import com.planruler.pipecalculator.calculateExpansionVessel
+import com.planruler.pipecalculator.catalogMatches
+import com.planruler.pipecalculator.elbowDimensions
+import com.planruler.pipecalculator.ElbowCatalogEntry
 import com.planruler.pipecalculator.calculateHydraulics
 import com.planruler.pipecalculator.calculateTwoElbowAssembly
 import com.planruler.pipecalculator.dowfrostAt
@@ -592,10 +595,15 @@ private fun InstallationPage(text: CalculatorText) {
 
 @Composable
 private fun CatalogPage(text: CalculatorText) {
+    var query by rememberSaveable { mutableStateOf("") }
     var section by rememberSaveable { mutableStateOf(CatalogSection.PIPES) }
     var selectedPn by rememberSaveable { mutableStateOf(16) }
     var selectedElbowId by rememberSaveable { mutableStateOf("heco-nb45-dn50-60.3x2.9") }
     var selectedFlangeDn by rememberSaveable { mutableStateOf(50) }
+    val visibleElbows = remember(query) {
+        ELBOW_45_3D_CATALOG.filter { catalogMatches(query, "DN${it.dn}", it.outsideDiameterMm.toString(), it.material) }
+    }
+    val selectedElbow = visibleElbows.firstOrNull { it.id == selectedElbowId } ?: visibleElbows.firstOrNull()
 
     LazyColumn(
         Modifier.fillMaxSize().testTag(PipeCalculatorTags.CatalogList),
@@ -603,6 +611,10 @@ private fun CatalogPage(text: CalculatorText) {
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item { PageHeading(text.catalogTitle, text.catalogBody) }
+        item {
+            OutlinedTextField(query, { query = it.take(80) }, label = { Text(text.catalogSearch) }, singleLine = true,
+                modifier = Modifier.fillMaxWidth().testTag("catalog-search"))
+        }
         item {
             LazyRow(
                 Modifier.testTag(PipeCalculatorTags.CatalogSections),
@@ -620,9 +632,9 @@ private fun CatalogPage(text: CalculatorText) {
         if (section == CatalogSection.ELBOWS) {
             item {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(ELBOW_45_3D_CATALOG, key = { it.id }) { elbow ->
+                    items(visibleElbows, key = { it.id }) { elbow ->
                         FilterChip(
-                            selected = selectedElbowId == elbow.id,
+                            selected = selectedElbow?.id == elbow.id,
                             onClick = { selectedElbowId = elbow.id },
                             label = { Text("DN ${elbow.dn}") },
                         )
@@ -656,7 +668,9 @@ private fun CatalogPage(text: CalculatorText) {
         }
         when (section) {
             CatalogSection.PIPES -> {
-                items(PIPE_INSTALLATION_SERIES, key = { it.id }) { pipe ->
+                items(PIPE_INSTALLATION_SERIES.filter {
+                    catalogMatches(query, "DN${it.dn}", it.outsideDiameterMm.toString(), it.wallThicknessMm.toString(), it.material)
+                }, key = { it.id }) { pipe ->
                     CatalogRow(
                         "DN ${pipe.dn} · Ø ${format(pipe.outsideDiameterMm, 1)} × ${format(pipe.wallThicknessMm, 1)} mm",
                         "ID ${format(pipe.innerDiameterMm, 1)} mm · ${format(pipe.theoreticalMassKgM, 3)} kg/m",
@@ -665,13 +679,11 @@ private fun CatalogPage(text: CalculatorText) {
                 item { CatalogSource(text, PIPE_INSTALLATION_SERIES.first().source.organisation, PIPE_INSTALLATION_SERIES.first().source.document) }
             }
             CatalogSection.ELBOWS -> {
-                item {
-                    AnimatedElbowPreview(
-                        ELBOW_45_3D_CATALOG.single { it.id == selectedElbowId },
-                        text.elbowAnimationDescription,
-                    )
+                selectedElbow?.let { selected ->
+                    item { ElbowSizingCard(selected, text) }
+                    item { AnimatedElbowPreview(selected, text.elbowAnimationDescription) }
                 }
-                items(ELBOW_45_3D_CATALOG, key = { it.id }) { elbow ->
+                items(visibleElbows, key = { it.id }) { elbow ->
                     CatalogRow(
                         "DN ${elbow.dn} · Ø ${format(elbow.outsideDiameterMm, 1)} × ${format(elbow.wallThicknessMm, 1)} mm",
                         "45° · R ${format(elbow.centerlineRadiusMm, 1)} ± ${format(elbow.radiusToleranceMm, 1)} mm · A ${format(elbow.centerToEndMm, 1)} mm",
@@ -680,7 +692,9 @@ private fun CatalogPage(text: CalculatorText) {
                 item { CatalogSource(text, ELBOW_45_3D_CATALOG.first().source.organisation, ELBOW_45_3D_CATALOG.first().source.document) }
             }
             CatalogSection.TEES -> {
-                items(EQUAL_TEE_CATALOG, key = { it.id }) { tee ->
+                items(EQUAL_TEE_CATALOG.filter {
+                    catalogMatches(query, "DN${it.dn}", it.outsideDiameterMm.toString(), it.material)
+                }, key = { it.id }) { tee ->
                     CatalogRow(
                         "DN ${tee.dn} · Ø ${format(tee.outsideDiameterMm, 1)} × ${format(tee.wallThicknessMm, 1)} mm",
                         "L ${format(tee.overallRunMm, 0)} mm · A ${format(tee.centerToEndMm, 0)} mm",
@@ -689,7 +703,9 @@ private fun CatalogPage(text: CalculatorText) {
                 item { CatalogSource(text, EQUAL_TEE_CATALOG.first().source.organisation, EQUAL_TEE_CATALOG.first().source.document) }
             }
             CatalogSection.REDUCERS -> {
-                items(ECCENTRIC_REDUCER_CATALOG, key = { it.id }) { reducer ->
+                items(ECCENTRIC_REDUCER_CATALOG.filter {
+                    catalogMatches(query, "DN${it.largeDn}", "DN${it.smallDn}", it.largeOutsideDiameterMm.toString(), it.material)
+                }, key = { it.id }) { reducer ->
                     CatalogRow(
                         "DN ${reducer.largeDn} → DN ${reducer.smallDn}",
                         "Ø ${format(reducer.largeOutsideDiameterMm, 1)} → ${format(reducer.smallOutsideDiameterMm, 1)} mm · L ${format(reducer.lengthMm, 0)} mm",
@@ -707,7 +723,7 @@ private fun CatalogPage(text: CalculatorText) {
                     )
                 }
                 items(
-                    FLANGE_CONNECTING_DIMENSIONS.filter { it.pn == selectedPn },
+                    FLANGE_CONNECTING_DIMENSIONS.filter { it.pn == selectedPn && catalogMatches(query, "DN${it.dn}", "PN${it.pn}", it.outsideDiameterMm.toString()) },
                     key = { it.id },
                 ) { flange ->
                     CatalogRow(
@@ -717,6 +733,36 @@ private fun CatalogPage(text: CalculatorText) {
                 }
                 item { CatalogSource(text, FLANGE_CONNECTING_DIMENSIONS.first().source.organisation, FLANGE_CONNECTING_DIMENSIONS.first().source.document) }
             }
+        }
+    }
+}
+
+@Composable
+private fun ElbowSizingCard(elbow: ElbowCatalogEntry, text: CalculatorText) {
+    var radius by remember(elbow.id) { mutableStateOf(elbow.centerlineRadiusMm.toString()) }
+    var angle by remember(elbow.id) { mutableStateOf(elbow.angleDeg.toString()) }
+    val result = remember(radius, angle, elbow.id) {
+        runCatching { elbowDimensions(number(radius), elbow.outsideDiameterMm, number(angle)) }.getOrNull()
+    }
+    OutlinedCard(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text.elbowDimensions, style = MaterialTheme.typography.titleMedium)
+            Text("DN${elbow.dn} · Ø${format(elbow.outsideDiameterMm, 1)} mm")
+            NumericField(radius, { radius = it }, text.elbowRadius)
+            NumericField(angle, { angle = it }, text.angle)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(listOf(30, 45, 60, 90)) { degrees ->
+                    FilterChip(angle.toDoubleOrNull() == degrees.toDouble(), { angle = degrees.toString() }, { Text("$degrees°") })
+                }
+            }
+            if (result == null) {
+                Text(text.elbowDimensionsInvalid, color = MaterialTheme.colorScheme.error)
+            } else {
+                Metric("A", "${format(result.centerToEndMm, 1)} mm")
+                Metric(text.elbowCenterArc, "${format(result.centerlineArcMm, 1)} mm")
+                Metric(text.elbowInnerOuter, "${format(result.insideArcMm, 1)} / ${format(result.outsideArcMm, 1)} mm")
+            }
+            Text(text.elbowGeometryHint, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -902,6 +948,13 @@ private fun format(value: Double, decimals: Int): String =
     String.format(Locale.getDefault(), "%.${decimals}f", value)
 
 private class CalculatorText(private val language: AppLanguage) {
+    val catalogSearch get() = t("Поиск DN, диаметра, материала", "Search DN, diameter, material")
+    val elbowDimensions get() = t("Размеры отвода по радиусу и углу", "Elbow dimensions by radius and angle")
+    val elbowRadius get() = t("Радиус по оси R, мм", "Centerline radius R, mm")
+    val elbowCenterArc get() = t("Длина дуги по оси", "Centerline arc length")
+    val elbowInnerOuter get() = t("Внутренняя / наружная дуга", "Inside / outside arc")
+    val elbowDimensionsInvalid get() = t("Нужны R > Ø/2 и угол от 0 до 180°", "Use R > Ø/2 and an angle between 0 and 180°")
+    val elbowGeometryHint get() = t("A — от пересечения осей до торца. Расчёт геометрии не включает припуски на гибку и сварку; заготовку вставки рассчитывайте в разделе «Монтаж».", "A is the center-to-end distance. Geometry excludes forming and weld allowances; calculate the insert cut length in Installation.")
     private fun t(russian: String, english: String) = localizedUi(language, russian, english)
     fun tab(tab: CalculatorTool) = when (tab) {
         CalculatorTool.HYDRAULICS -> t("Гидравлика", "Hydraulics")

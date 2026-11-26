@@ -58,6 +58,7 @@ import com.planruler.isometric.IsoGrid
 import com.planruler.isometric.IsoHit
 import com.planruler.isometric.IsoHitTester
 import com.planruler.isometric.IsoNetwork
+import com.planruler.isometric.IsoNodeDrag
 import com.planruler.isometric.IsoProjection
 import com.planruler.isometric.IsoRunPlanner
 import com.planruler.isometric.IsoSelection
@@ -147,8 +148,10 @@ fun IsometricEditorScreen(
     var fitted by remember(sheet.id) { mutableStateOf(sheet.viewport != null) }
     var pick by remember(sheet.id) { mutableStateOf<IsoPick?>(null) }
     var head by remember(sheet.id) { mutableStateOf<ChainHead?>(null) }
-    var dragOrigin by remember { mutableStateOf<ChainHead?>(null) }
-    var preview by remember { mutableStateOf<RunPlan?>(null) }
+    var dragOrigin by remember(sheet.id) { mutableStateOf<ChainHead?>(null) }
+    var preview by remember(sheet.id) { mutableStateOf<RunPlan?>(null) }
+    var nodeDrag by remember(sheet.id) { mutableStateOf<IsoNodeDrag?>(null) }
+    var nodeTarget by remember(sheet.id) { mutableStateOf<Vec3?>(null) }
     var menu by remember { mutableStateOf(false) }
     var lengthEdit by remember { mutableStateOf<IsoPipeId?>(null) }
     var gridEdit by remember { mutableStateOf(false) }
@@ -335,6 +338,10 @@ fun IsometricEditorScreen(
                             )
                             HorizontalDivider()
                             DropdownMenuItem(
+                                text = { Text(text.isoExportPdf) },
+                                onClick = { menu = false; onExport(IsometricExportFormat.PDF) },
+                            )
+                            DropdownMenuItem(
                                 text = { Text(text.isoExportSvg) },
                                 onClick = { menu = false; onExport(IsometricExportFormat.SVG) },
                             )
@@ -395,7 +402,13 @@ fun IsometricEditorScreen(
                         }
                     },
                     onDragStart = { point ->
-                        if (tool != IsoTool.PIPE) {
+                        if (tool == IsoTool.SELECT) {
+                            val node = (IsoHitTester.hit(sheet, point, toleranceMm) as? IsoHit.Node)?.id
+                            nodeDrag = node?.let { id -> position(id)?.let { IsoNodeDrag(id, it, point) } }
+                            nodeTarget = nodeDrag?.origin
+                            if (node != null) pick = IsoPick.Node(node)
+                            nodeDrag != null
+                        } else if (tool != IsoTool.PIPE) {
                             false
                         } else {
                             val current = head
@@ -409,8 +422,18 @@ fun IsometricEditorScreen(
                             origin != null
                         }
                     },
-                    onDrag = { point -> dragOrigin?.let { origin -> preview = planTo(origin.position, point) } },
+                    onDrag = { point ->
+                        nodeDrag?.let { nodeTarget = it.target(point, projection, gridStep) }
+                        dragOrigin?.let { origin -> preview = planTo(origin.position, point) }
+                    },
                     onDragEnd = {
+                        val moving = nodeDrag
+                        val target = nodeTarget
+                        nodeDrag = null
+                        nodeTarget = null
+                        if (moving != null && target != null && target != moving.origin) {
+                            viewModel.isoEdit { moveNode(moving.nodeId, target) }
+                        }
                         val origin = dragOrigin
                         val plan = preview
                         dragOrigin = null
@@ -418,9 +441,12 @@ fun IsometricEditorScreen(
                         if (origin != null && plan != null) addRun(origin, plan.delta)
                     },
                     onDragCancel = {
+                        nodeDrag = null
+                        nodeTarget = null
                         dragOrigin = null
                         preview = null
                     },
+                    movingSheet = nodeDrag?.let { moving -> nodeTarget?.let { moving.preview(sheet, it) } },
                 )
 
                 if (sheet.pipes.isEmpty()) {
@@ -451,6 +477,12 @@ fun IsometricEditorScreen(
                                 TextButton({ lengthEdit = pipe.id }) {
                                     Text("L ${labeler.length(network.length(pipe))} mm ✎", maxLines = 1)
                                 }
+                                PipeCatalogButton(text) { entry ->
+                                    val chosen = pipe.spec.copy(nominalDiameter = entry.dn,
+                                        material = "${entry.material} · Ø${entry.outsideDiameterMm} × ${entry.wallThicknessMm} mm")
+                                    spec = chosen
+                                    viewModel.isoEdit { setPipeSpec(listOf(pipe.id), chosen) }
+                                }
                                 TextButton({ viewModel.isoEdit { setPipeSpec(listOf(pipe.id), spec) } }) {
                                     Text(text.isoApplySpec, maxLines = 1)
                                 }
@@ -467,6 +499,7 @@ fun IsometricEditorScreen(
                             }
                         }
                         is IsoPick.Node -> position(current.id)?.let { at ->
+                            if (tool == IsoTool.SELECT) IsoBar { Text(text.isoMoveNodeHint, style = MaterialTheme.typography.bodySmall) }
                             IsoBar {
                                 Text(labeler.elevation(at.z), style = MaterialTheme.typography.labelLarge)
                                 TextButton({
@@ -527,10 +560,14 @@ fun IsometricEditorScreen(
                                     { Text(listOfNotNull(isoSystemCode(settings.language, system), text.isoSystemName(system)).joinToString(" ")) },
                                 )
                             }
+                            PipeCatalogButton(text) { entry ->
+                                spec = spec.copy(nominalDiameter = entry.dn,
+                                    material = "${entry.material} · Ø${entry.outsideDiameterMm} × ${entry.wallThicknessMm} mm")
+                            }
                             PIPE_SIZES.forEach { size ->
                                 FilterChip(
                                     spec.nominalDiameter == size,
-                                    { spec = spec.copy(nominalDiameter = size) },
+                                    { spec = spec.copy(nominalDiameter = size, material = null) },
                                     { Text("DN$size") },
                                 )
                             }

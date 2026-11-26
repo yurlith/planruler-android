@@ -4,6 +4,20 @@ package com.planruler.designsystem.localization
 // Plumbing and heating terms follow trade usage in each market (DIN, PN-EN, NF, UNI).
 
 internal val isometricGermanUi: Map<String, String> = mapOf(
+    "Export PDF" to "PDF exportieren",
+    "Drag a node along X, Y or Z · distance snaps to the grid" to "Knoten entlang X, Y oder Z ziehen · Abstand rastet am Gitter ein",
+    "Pipe catalog" to "Rohrkatalog",
+    "Search DN, diameter, material" to "DN, Durchmesser, Werkstoff suchen",
+    "Choose a pipe to fill its material and dimensions. Custom sizes can be entered manually and saved in a template." to "Rohr wählen, um Werkstoff und Maße zu übernehmen. Eigene Maße können manuell eingegeben und als Vorlage gespeichert werden.",
+    "No matching pipes" to "Keine passenden Rohre",
+    "Drag a reference with the magnifier or tap its two ends" to "Referenzstrecke mit der Lupe ziehen oder beide Enden antippen",
+    "Photo or scan: choose a long dimension and enter its value. Keep the sheet flat and the camera square to it." to "Foto oder Scan: Eine lange Maßstrecke wählen und ihren Wert eingeben. Blatt flach halten und senkrecht fotografieren.",
+    "Elbow dimensions by radius and angle" to "Bogenmaße nach Radius und Winkel",
+    "Centerline radius R, mm" to "Mittellinienradius R, mm",
+    "Centerline arc length" to "Bogenlänge der Mittellinie",
+    "Inside / outside arc" to "Innerer / äußerer Bogen",
+    "Use R > Ø/2 and an angle between 0 and 180°" to "R > Ø/2 und einen Winkel zwischen 0 und 180° eingeben",
+    "A is the center-to-end distance. Geometry excludes forming and weld allowances; calculate the insert cut length in Installation." to "A ist der Abstand vom Achsenschnittpunkt zum Ende. Ohne Umform- und Schweißzugaben; die Zuschnittlänge des Zwischenstücks wird unter Montage berechnet.",
     "There are no pipe runs on this page. Draw pipes with a heating or plumbing template." to "Auf dieser Seite gibt es keine Rohrleitungen. Zeichnen Sie Rohre mit einer Heizungs- oder Sanitärvorlage.",
     "Rises and drops belong to runs: distances and polylines." to "Steig- und Fallstrecken gibt es nur bei Leitungen: Strecken und Polylinien.",
     "The height is out of range (up to 100 m)." to "Die Höhe liegt außerhalb des Bereichs (bis 100 m).",
@@ -97,6 +111,20 @@ internal val isometricGermanUi: Map<String, String> = mapOf(
 )
 
 internal val isometricPolishUi: Map<String, String> = mapOf(
+    "Export PDF" to "Eksport PDF",
+    "Drag a node along X, Y or Z · distance snaps to the grid" to "Przeciągnij węzeł wzdłuż X, Y lub Z · odległość przyciąga do siatki",
+    "Pipe catalog" to "Katalog rur",
+    "Search DN, diameter, material" to "Szukaj DN, średnicy, materiału",
+    "Choose a pipe to fill its material and dimensions. Custom sizes can be entered manually and saved in a template." to "Wybierz rurę, aby uzupełnić materiał i wymiary. Własne wymiary można wpisać ręcznie i zapisać w szablonie.",
+    "No matching pipes" to "Nie znaleziono rur",
+    "Drag a reference with the magnifier or tap its two ends" to "Narysuj odcinek odniesienia z lupą lub dotknij obu końców",
+    "Photo or scan: choose a long dimension and enter its value. Keep the sheet flat and the camera square to it." to "Zdjęcie lub skan: wybierz długi wymiar i wpisz jego wartość. Arkusz powinien być płaski, a aparat ustawiony prostopadle.",
+    "Elbow dimensions by radius and angle" to "Wymiary kolana według promienia i kąta",
+    "Centerline radius R, mm" to "Promień osi R, mm",
+    "Centerline arc length" to "Długość łuku osi",
+    "Inside / outside arc" to "Łuk wewnętrzny / zewnętrzny",
+    "Use R > Ø/2 and an angle between 0 and 180°" to "Podaj R > Ø/2 oraz kąt między 0 a 180°",
+    "A is the center-to-end distance. Geometry excludes forming and weld allowances; calculate the insert cut length in Installation." to "A to odległość od przecięcia osi do końca. Geometria nie obejmuje naddatków na gięcie i spawanie; długość cięcia wstawki oblicz w sekcji Montaż.",
     "There are no pipe runs on this page. Draw pipes with a heating or plumbing template." to "Na tej stronie nie ma tras rur. Narysuj rury szablonem ogrzewania lub instalacji wod.-kan.",
     "Rises and drops belong to runs: distances and polylines." to "Odcinki pionowe dodaje się tylko do tras: odcinków i polilinii.",
     "The height is out of range (up to 100 m)." to "Wysokość poza zakresem (do 100 m).",
@@ -190,6 +218,20 @@ internal val isometricPolishUi: Map<String, String> = mapOf(
 )
 
 internal val isometricFrenchUi: Map<String, String> = mapOf(
+    "Export PDF" to "Exporter en PDF",
+    "Drag a node along X, Y or Z · distance snaps to the grid" to "Déplacer un nœud selon X, Y ou Z · distance alignée sur la grille",
+    "Pipe catalog" to "Catalogue de tubes",
+    "Search DN, diameter, material" to "Rechercher DN, diamètre, matériau",
+    "Choose a pipe to fill its material and dimensions. Custom sizes can be entered manually and saved in a template." to "Choisir un tube pour renseigner le matériau et les dimensions. Les dimensions personnalisées peuvent être saisies puis enregistrées dans un modèle.",
+    "No matching pipes" to "Aucun tube correspondant",
+    "Drag a reference with the magnifier or tap its two ends" to "Tracer la référence avec la loupe ou toucher ses deux extrémités",
+    "Photo or scan: choose a long dimension and enter its value. Keep the sheet flat and the camera square to it." to "Photo ou scan : choisir une longue cote et saisir sa valeur. Garder la feuille à plat et l'appareil perpendiculaire.",
+    "Elbow dimensions by radius and angle" to "Dimensions du coude selon le rayon et l'angle",
+    "Centerline radius R, mm" to "Rayon à l'axe R, mm",
+    "Centerline arc length" to "Longueur de l'arc à l'axe",
+    "Inside / outside arc" to "Arc intérieur / extérieur",
+    "Use R > Ø/2 and an angle between 0 and 180°" to "Saisir R > Ø/2 et un angle entre 0 et 180°",
+    "A is the center-to-end distance. Geometry excludes forming and weld allowances; calculate the insert cut length in Installation." to "A est la distance entre l'intersection des axes et l'extrémité. Le calcul exclut les surlongueurs de formage et de soudage ; calculer la coupe du tronçon dans Montage.",
     "There are no pipe runs on this page. Draw pipes with a heating or plumbing template." to "Aucune conduite sur cette page. Tracez les tubes avec un modèle chauffage ou plomberie.",
     "Rises and drops belong to runs: distances and polylines." to "Les montées et descentes s'appliquent aux tracés : distances et polylignes.",
     "The height is out of range (up to 100 m)." to "Hauteur hors limites (jusqu'à 100 m).",
@@ -283,6 +325,20 @@ internal val isometricFrenchUi: Map<String, String> = mapOf(
 )
 
 internal val isometricItalianUi: Map<String, String> = mapOf(
+    "Export PDF" to "Esporta PDF",
+    "Drag a node along X, Y or Z · distance snaps to the grid" to "Trascina un nodo lungo X, Y o Z · distanza agganciata alla griglia",
+    "Pipe catalog" to "Catalogo tubi",
+    "Search DN, diameter, material" to "Cerca DN, diametro, materiale",
+    "Choose a pipe to fill its material and dimensions. Custom sizes can be entered manually and saved in a template." to "Scegli un tubo per compilare materiale e dimensioni. Le misure personalizzate possono essere inserite manualmente e salvate in un modello.",
+    "No matching pipes" to "Nessun tubo corrispondente",
+    "Drag a reference with the magnifier or tap its two ends" to "Traccia il riferimento con la lente o tocca le due estremità",
+    "Photo or scan: choose a long dimension and enter its value. Keep the sheet flat and the camera square to it." to "Foto o scansione: scegli una quota lunga e inserisci il valore. Mantieni il foglio piano e la fotocamera perpendicolare.",
+    "Elbow dimensions by radius and angle" to "Dimensioni della curva da raggio e angolo",
+    "Centerline radius R, mm" to "Raggio all'asse R, mm",
+    "Centerline arc length" to "Lunghezza dell'arco all'asse",
+    "Inside / outside arc" to "Arco interno / esterno",
+    "Use R > Ø/2 and an angle between 0 and 180°" to "Inserisci R > Ø/2 e un angolo tra 0 e 180°",
+    "A is the center-to-end distance. Geometry excludes forming and weld allowances; calculate the insert cut length in Installation." to "A è la distanza dall'intersezione degli assi all'estremità. Il calcolo esclude i sovrametalli di formatura e saldatura; calcola il taglio del tratto in Montaggio.",
     "There are no pipe runs on this page. Draw pipes with a heating or plumbing template." to "In questa pagina non ci sono tubazioni. Disegna i tubi con un modello riscaldamento o idraulica.",
     "Rises and drops belong to runs: distances and polylines." to "Salite e discese valgono solo per i percorsi: distanze e polilinee.",
     "The height is out of range (up to 100 m)." to "Altezza fuori intervallo (fino a 100 m).",

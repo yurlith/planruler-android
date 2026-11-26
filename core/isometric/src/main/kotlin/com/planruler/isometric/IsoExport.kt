@@ -10,6 +10,9 @@ import kotlin.math.max
 object IsoExport {
     private val STANDARD_SCALES = listOf(1.0, 2.0, 5.0, 10.0, 20.0, 25.0, 50.0, 100.0, 200.0, 500.0, 1_000.0)
 
+    internal fun nextPaperScale(scale: Double): Double =
+        STANDARD_SCALES.firstOrNull { it > scale } ?: (ceil(scale / 1_000.0) + 1.0) * 1_000.0
+
     /** Smallest standard scale 1:n at which the network fits an A3 landscape drawing field. */
     fun paperScaleFor(sheet: IsometricSheet, fieldWidthMm: Double = 380.0, fieldHeightMm: Double = 250.0): Double {
         val projection = IsoProjection.of(sheet.projection)
