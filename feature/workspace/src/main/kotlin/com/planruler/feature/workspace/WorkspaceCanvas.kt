@@ -74,6 +74,11 @@ import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
+/** Where the last frame put each value label, so a tap can find the label it landed on. */
+internal class PlanLabelHits {
+    var labels: List<PlacedPlanLabel> = emptyList()
+}
+
 data class Hit(
     val measurement: Measurement,
     val vertexIndex: Int?,
@@ -287,6 +292,7 @@ fun PlanCanvas(
     // to the hit test, so grabbing its endpoint started a brand-new ruler instead of
     // stretching it. Reading through this holder gives the gesture the current list.
     val hitTestTargets by rememberUpdatedState(selectable)
+    val labelHits = remember(page.documentId, page.pageIndex) { PlanLabelHits() }
     fun liveTransform() = ViewportTransform(
         size.width.toDouble(),
         size.height.toDouble(),
@@ -298,18 +304,19 @@ fun PlanCanvas(
     )
 
     fun hitAt(offset: Offset): Hit? {
+        // A value label is drawn on top, so a tap inside it means the label: the exact-value
+        // action of a ruler. Labels never cover measured points, so vertices stay reachable.
+        labelHits.labels
+            .lastOrNull { it.kind == PlanLabelKind.VALUE && it.contains(offset.x, offset.y) }
+            ?.let { label -> hitTestTargets.firstOrNull { it.id.value == label.key && it.type == MeasurementType.DISTANCE } }
+            ?.let { return Hit(it, null, label = true) }
         val liveZoom = gestureViewport.value.zoom.coerceAtLeast(0.05)
         val point = toDocument(offset)
-        val geometryHit = hitTest(
+        return hitTest(
             hitTestTargets,
             point,
             with(density) { dimens.vertexHitRadius.toPx() } / liveZoom,
             with(density) { dimens.segmentHitTolerance.toPx() } / liveZoom,
-        )
-        return geometryHit ?: labelHitTest(
-            measurements = hitTestTargets,
-            point = point,
-            tolerance = with(density) { 34.dp.toPx() } / liveZoom,
         )
     }
 
@@ -380,6 +387,7 @@ fun PlanCanvas(
                 revisionTransform = revisionTransform,
                 revisionOverlayOpacity = revisionOverlayOpacity,
                 editable = mode == WorkspaceMode.EDIT,
+                labelHits = labelHits,
             )
             calibrationPoints.forEach { point ->
                 val screen = drawTransform.documentToScreen(point).offset()
@@ -573,6 +581,7 @@ private fun DrawScope.drawPlan(
     revisionTransform: RevisionTransform?,
     revisionOverlayOpacity: Float,
     editable: Boolean,
+    labelHits: PlanLabelHits? = null,
 ) {
     val topLeft = transform.documentToScreen(DocPoint(0.0, 0.0))
     val bottomRight = transform.documentToScreen(DocPoint(page.source.width, page.source.height))
@@ -622,56 +631,132 @@ private fun DrawScope.drawPlan(
         size = Size(width.toFloat(), height.toFloat()),
         style = Stroke(colors.pageBorderWidth),
     )
-    engine.measurements
-        .filter {
-            it.pageIndex == logicalPageIndex && it.id in visibleMeasurementIds && it.layerId !in hiddenLayers
-        }
-        .forEach { measurement ->
-            drawMeasurement(
-                measurement = measurement,
-                transform = transform,
-                colors = colors,
-                page = page,
-                label = if (showLabels) valueOf(measurement) else "",
-                segmentLabels = if (showLabels) segmentsOf(measurement) else emptyList(),
-                committed = true,
-                selected = measurement.id == selectedId,
-                selectedVertex = if (measurement.id == selectedId) selectedVertex else null,
-                handleRadiusPx = handleRadiusPx,
-                labelTextPx = labelTextPx,
-                showHandles = shouldShowHandles(editable, measurement.id, selectedId),
-            )
-        }
-    engine.draft?.takeIf { it.pageIndex == logicalPageIndex }?.let {
+    val shown = engine.measurements.filter {
+        it.pageIndex == logicalPageIndex && it.id in visibleMeasurementIds && it.layerId !in hiddenLayers
+    }
+    shown.forEach { measurement ->
+        drawMeasurement(
+            measurement = measurement,
+            transform = transform,
+            colors = colors,
+            committed = true,
+            selected = measurement.id == selectedId,
+            selectedVertex = if (measurement.id == selectedId) selectedVertex else null,
+            handleRadiusPx = handleRadiusPx,
+            showHandles = shouldShowHandles(editable, measurement.id, selectedId),
+        )
+    }
+    val draft = engine.draft?.takeIf { it.pageIndex == logicalPageIndex }
+    draft?.let {
         drawMeasurement(
             measurement = it,
             transform = transform,
             colors = colors,
-            page = page,
-            label = "",
-            segmentLabels = emptyList(),
             committed = false,
             selected = false,
             selectedVertex = null,
             handleRadiusPx = handleRadiusPx,
-            labelTextPx = labelTextPx,
             showHandles = true,
         )
     }
+    if (labelTextPx <= 0f) return
+    // Values are laid out together, after every line is drawn, so none covers another.
+    val geometry = (shown + listOfNotNull(draft)).map { measurement ->
+        val isDraft = measurement === draft
+        val value = when {
+            !showLabels -> ""
+            measurement.type == MeasurementType.ANNOTATION ->
+                measurement.label?.takeIf { it.isNotBlank() }?.lineSequence()?.first()?.take(48).orEmpty()
+            !measurement.showLabel && !isDraft -> ""
+            else -> valueOf(measurement).let { value ->
+                if (value.isEmpty()) value else measurement.label?.takeIf { it.isNotBlank() }?.let { "$it · $value" } ?: value
+            }
+        }
+        LabelGeometry(
+            key = measurement.id.value,
+            type = measurement.type,
+            points = measurement.points.map { point ->
+                transform.documentToScreen(point).let { LabelPoint(it.x.toFloat(), it.y.toFloat()) }
+            },
+            value = value,
+            segments = if (showLabels) segmentsOf(measurement) else emptyList(),
+            rises = measurement.route?.takeIf { it.hasRises }?.let { route ->
+                measurement.points.indices.mapNotNull { index ->
+                    route.riseAt(index).takeIf { it != 0.0 }?.let { index to riseLabel(it) }
+                }
+            }.orEmpty(),
+            selected = measurement.id == selectedId,
+            draft = isDraft,
+        )
+    }
+    val paints = HashMap<Float, Paint>()
+    fun paintFor(textPx: Float) = paints.getOrPut(textPx) {
+        Paint().apply {
+            textSize = textPx
+            isAntiAlias = true
+        }
+    }
+    val labels = layoutPlanLabels(
+        measurements = geometry,
+        width = size.width,
+        height = size.height,
+        metrics = PlanLabelMetrics(
+            valueTextPx = labelTextPx,
+            segmentTextPx = labelTextPx * 0.85f,
+            riseTextPx = labelTextPx * 0.8f,
+            lineHeight = { textPx -> paintFor(textPx).fontMetrics.let { it.bottom - it.top } },
+            textWidth = { text, textPx -> paintFor(textPx).measureText(text) },
+            paddingPx = labelTextPx * 0.35f,
+            gapPx = 3.dp.toPx(),
+            handleRadiusPx = handleRadiusPx,
+            lineHalfWidthPx = 4f,
+        ),
+    )
+    labelHits?.labels = labels
+    labels.forEach { label -> drawPlacedLabel(label, paintFor(label.textPx), page, transform, colors, labelTextPx * 0.35f) }
+}
+
+/**
+ * A label must stay legible over any drawing, so the backdrop is chosen from the
+ * luminance of the rendered page underneath it rather than from the theme alone.
+ */
+private fun DrawScope.drawPlacedLabel(
+    label: PlacedPlanLabel,
+    paint: Paint,
+    page: RenderedPage,
+    transform: ViewportTransform,
+    colors: PlanRulerCanvasColors,
+    padding: Float,
+) {
+    val center = transform.screenToDocument(
+        ScreenPoint((label.left + label.width / 2f).toDouble(), (label.top + label.height / 2f).toDouble()),
+    )
+    val light = page.luminanceAt(center) > 0.55f
+    val backdrop = if (light) colors.labelBackdropLight else colors.labelBackdropDark
+    val textColor = if (light) colors.labelTextLight else colors.labelTextDark
+    label.leaderFrom?.let { from ->
+        val to = Offset(from.x.coerceIn(label.left, label.right), from.y.coerceIn(label.top, label.bottom))
+        drawLine(backdrop, Offset(from.x, from.y), to, strokeWidth = 4f)
+        drawLine(textColor, Offset(from.x, from.y), to, strokeWidth = 1.5f)
+    }
+    drawRoundRect(
+        backdrop,
+        topLeft = Offset(label.left, label.top),
+        size = Size(label.width, label.height),
+        cornerRadius = CornerRadius(6f, 6f),
+    )
+    paint.color = textColor.toArgb()
+    drawContext.canvas.nativeCanvas.drawText(label.text, label.left + padding, label.top + padding - paint.fontMetrics.top, paint)
 }
 
 private fun DrawScope.drawMeasurement(
     measurement: Measurement,
     transform: ViewportTransform,
     colors: PlanRulerCanvasColors,
-    page: RenderedPage,
-    label: String,
-    segmentLabels: List<String>,
     committed: Boolean,
     selected: Boolean,
     selectedVertex: Int?,
     handleRadiusPx: Float,
-    labelTextPx: Float,
     showHandles: Boolean,
 ) {
     val points = measurement.points.map { transform.documentToScreen(it).offset() }
@@ -697,6 +782,7 @@ private fun DrawScope.drawMeasurement(
         }
     }
     // Risers and drops use the plan convention: a dot comes up towards the reader, a cross goes down.
+    // Their heights are written by the label layout together with every other value.
     measurement.route?.takeIf { it.hasRises }?.let { route ->
         val line = max(2f, stroke * 0.6f)
         points.forEachIndexed { index, point ->
@@ -712,78 +798,8 @@ private fun DrawScope.drawMeasurement(
                 drawLine(color, Offset(point.x - d, point.y - d), Offset(point.x + d, point.y + d), strokeWidth = line)
                 drawLine(color, Offset(point.x - d, point.y + d), Offset(point.x + d, point.y - d), strokeWidth = line)
             }
-            if (labelTextPx > 0f) {
-                drawLabel(
-                    riseLabel(rise),
-                    Offset(point.x, point.y + labelTextPx * 1.8f + 12f),
-                    measurement.points[index],
-                    page,
-                    colors,
-                    labelTextPx * 0.8f,
-                )
-            }
         }
     }
-    // Segment lengths sit on their own segment, so a polyline reads as a chain of runs.
-    if (segmentLabels.isNotEmpty() && labelTextPx > 0f) {
-        points.zipWithNext().forEachIndexed { index, (a, b) ->
-            val value = segmentLabels.getOrNull(index) ?: return@forEachIndexed
-            val documentMiddle = DocPoint(
-                (measurement.points[index].x + measurement.points[index + 1].x) / 2.0,
-                (measurement.points[index].y + measurement.points[index + 1].y) / 2.0,
-            )
-            drawLabel(
-                value,
-                Offset((a.x + b.x) / 2f, (a.y + b.y) / 2f),
-                documentMiddle,
-                page,
-                colors,
-                labelTextPx * 0.85f,
-            )
-        }
-    }
-    if (measurement.showLabel && labelTextPx > 0f && label.isNotEmpty()) {
-        val text = measurement.label?.takeIf { it.isNotBlank() }?.let { "$it · $label" } ?: label
-        drawLabel(text, points.last(), measurement.points.last(), page, colors, labelTextPx)
-    } else if (measurement.type == MeasurementType.ANNOTATION && labelTextPx > 0f) {
-        measurement.label?.takeIf { it.isNotBlank() }?.let {
-            drawLabel(it.lineSequence().first().take(48), points.first(), measurement.points.first(), page, colors, labelTextPx)
-        }
-    }
-}
-
-/**
- * A label must stay legible over any drawing, so the backdrop is chosen from the
- * luminance of the rendered page underneath it rather than from the theme alone.
- */
-private fun DrawScope.drawLabel(
-    text: String,
-    anchor: Offset,
-    documentAnchor: DocPoint,
-    page: RenderedPage,
-    colors: PlanRulerCanvasColors,
-    textPx: Float,
-) {
-    val light = page.luminanceAt(documentAnchor) > 0.55f
-    val backdrop = if (light) colors.labelBackdropLight else colors.labelBackdropDark
-    val textColor = if (light) colors.labelTextLight else colors.labelTextDark
-    val paint = Paint().apply {
-        textSize = textPx
-        isAntiAlias = true
-        color = textColor.toArgb()
-    }
-    val width = paint.measureText(text)
-    val metrics = paint.fontMetrics
-    val padding = textPx * 0.35f
-    val left = anchor.x + 14f
-    val baseline = anchor.y - 12f
-    drawRoundRect(
-        backdrop,
-        topLeft = Offset(left - padding, baseline + metrics.top - padding),
-        size = Size(width + padding * 2, (metrics.bottom - metrics.top) + padding * 2),
-        cornerRadius = CornerRadius(6f, 6f),
-    )
-    drawContext.canvas.nativeCanvas.drawText(text, left, baseline, paint)
 }
 
 private fun RenderedPage.luminanceAt(point: DocPoint): Float {
