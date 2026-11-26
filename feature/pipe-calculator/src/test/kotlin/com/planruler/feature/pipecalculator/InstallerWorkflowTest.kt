@@ -50,7 +50,8 @@ class InstallerWorkflowTest {
         )
 
         assertEquals(InstallerCalculationPath.AUTO_ROUTE, request.calculationPath)
-        assertEquals(Vec3(1_600.0, 500.0, 300.0), request.target)
+        // Right of the run is -Y: the world is right-handed and stands on Z.
+        assertEquals(Vec3(1_600.0, -500.0, 300.0), request.target)
         assertEquals(Vec3.UNIT_X, request.endDirection)
         assertEquals(45.0, request.preferredAngleDeg ?: 0.0, 0.0)
     }
@@ -70,7 +71,7 @@ class InstallerWorkflowTest {
             ),
         )
 
-        assertEquals(Vec3(2_000.0, -900.0, -400.0), request.target)
+        assertEquals(Vec3(2_000.0, 900.0, -400.0), request.target)
         assertEquals(-Vec3.UNIT_X, request.endDirection)
     }
 
@@ -98,7 +99,7 @@ class InstallerWorkflowTest {
             ),
         )
         assertEquals(-60.3, request.referenceCorrectionMm, 1e-9)
-        assertEquals(439.7, request.target.y, 1e-9)
+        assertEquals(-439.7, request.target.y, 1e-9)
     }
 
     @Test fun `a flat offset that climbs is solved in the vertical plane with its edge correction`() {
@@ -215,8 +216,8 @@ class InstallerWorkflowTest {
         assertEquals(ChainTerminal3D.OPEN_END, request.endTerminal)
         assertEquals(Vec3.UNIT_X, request.endDirection)
         assertEquals(Vec3(2.0, 0.0, 0.0), request.start)
-        assertEquals(Vec3(1_598.0, 500.0, 0.0), request.target)
-        assertEquals(Vec3(1_600.0, 500.0, 0.0), request.measuredTarget)
+        assertEquals(Vec3(1_598.0, -500.0, 0.0), request.target)
+        assertEquals(Vec3(1_600.0, -500.0, 0.0), request.measuredTarget)
         assertEquals(2.0, request.siteWeldGapMm, 0.0)
 
         val profile = calculateFlangedOffsetAssembly(

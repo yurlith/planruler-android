@@ -3,6 +3,7 @@ package com.planruler.feature.workspace
 import com.planruler.model.Calibration
 import com.planruler.model.DocPoint
 import com.planruler.model.InstallationJobId
+import com.planruler.model.InstallationLateralDirection
 import com.planruler.model.InstallationMeasurementReference
 import com.planruler.model.InstallationPipeMaterial
 import com.planruler.model.InstallationTaskType
@@ -52,6 +53,24 @@ class InstallationJobFromMeasurementTest {
         assertEquals("Нержавеющая сталь", job.input.materialName)
         assertEquals(measurement.id, job.source2D?.measurementId)
         assertSame(measurement.points, job.source2D?.points)
+    }
+
+    @Test fun `the offset side is taken from the direction of travel on the page`() {
+        fun side(vararg points: DocPoint) = measurementToInstallationJob(
+            measurement(MeasurementType.POLYLINE, points.toList()),
+            calibration,
+            42L,
+            InstallationJobId("job"),
+        )!!.input.lateralDirection
+
+        // The page's y runs down: heading east, down the page is on the right.
+        assertEquals(InstallationLateralDirection.RIGHT, side(DocPoint(0.0, 0.0), DocPoint(6.0, 0.0), DocPoint(10.0, 4.0)))
+        assertEquals(InstallationLateralDirection.LEFT, side(DocPoint(0.0, 0.0), DocPoint(6.0, 0.0), DocPoint(10.0, -4.0)))
+        // Heading west, the same step down the page is on the left.
+        assertEquals(InstallationLateralDirection.LEFT, side(DocPoint(10.0, 0.0), DocPoint(4.0, 0.0), DocPoint(0.0, 4.0)))
+        // Heading down the page, east is on the left and west on the right.
+        assertEquals(InstallationLateralDirection.LEFT, side(DocPoint(0.0, 0.0), DocPoint(0.0, 6.0), DocPoint(4.0, 10.0)))
+        assertEquals(InstallationLateralDirection.RIGHT, side(DocPoint(0.0, 0.0), DocPoint(0.0, 6.0), DocPoint(-4.0, 10.0)))
     }
 
     @Test fun `a run with a rise between its ends becomes a 3D offset welded to pipes`() {

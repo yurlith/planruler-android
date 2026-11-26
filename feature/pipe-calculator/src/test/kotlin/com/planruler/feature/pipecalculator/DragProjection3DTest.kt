@@ -130,13 +130,40 @@ class DragProjection3DTest {
         assertEquals("a sideways drag moved the length", 0.0, drag.millimetres, 1e-6)
     }
 
+    /**
+     * A rise is +Z everywhere in the engine and on the drawings, so the viewport must draw it
+     * upward; a "front" that showed the plan made an offset climbing over a beam look flat.
+     */
+    @Test
+    fun `the world stands on Z, so a rise is drawn upward from every side`() {
+        val front = projector(0f, 0f, perspective = false)
+        val origin = front.project(Vec3.ZERO).screen
+        val runLength = (front.project(Vec3(100.0, 0.0, 0.0)).screen - origin).getDistance()
+
+        viewpoints.filter { it.first != "top" }.forEach { (name, angles) ->
+            val projector = projector(angles.first, angles.second, perspective = false)
+            val base = projector.project(Vec3.ZERO).screen
+            val rise = projector.project(Vec3(0.0, 0.0, 100.0)).screen
+            assertTrue("$name drew a rise flat or downward", base.y - rise.y > runLength * 0.5f)
+        }
+
+        // From the front a sideways step runs straight away from the viewer...
+        val side = front.project(Vec3(0.0, 100.0, 0.0)).screen - origin
+        assertEquals(0f, side.getDistance(), 1e-3f)
+        // ...and from the top the run goes right while +Y goes up the screen, like a plan.
+        val top = projector(0f, 88f, perspective = false)
+        val topOrigin = top.project(Vec3.ZERO).screen
+        assertTrue((top.project(Vec3(100.0, 0.0, 0.0)).screen - topOrigin).x > runLength * 0.9f)
+        assertTrue((top.project(Vec3(0.0, 100.0, 0.0)).screen - topOrigin).y < -runLength * 0.9f)
+    }
+
     /** An axis pointing at the camera would turn a pixel into metres; it must be refused. */
     @Test
     fun `an axis pointing at the camera is refused rather than guessed`() {
-        // Front view looks down -Z, so the Z axis collapses to almost nothing on screen.
+        // The front view looks along +Y at a world standing on Z, so Y collapses on screen.
         val projector = projector(0f, 0f, perspective = false)
 
-        val drag = DragProjection3D.alongAxis(projector, Vec3.ZERO, Vec3.UNIT_Z, Offset(120f, 0f))
+        val drag = DragProjection3D.alongAxis(projector, Vec3.ZERO, Vec3.UNIT_Y, Offset(120f, 0f))
 
         assertNull("an edge-on axis produced a length anyway", drag)
     }

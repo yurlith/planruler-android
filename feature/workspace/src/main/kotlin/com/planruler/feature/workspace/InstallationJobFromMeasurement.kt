@@ -46,7 +46,10 @@ internal fun measurementToInstallationJob(
     } else {
         terminalAlongMm.takeIf { it > 0.5 } ?: totalLengthMm
     }
-    val minorSigned = if (xIsAlong) dyMm else dxMm
+    // Positive when the far end lies to the right of the direction of travel. The page's y
+    // runs down, so turning the travel direction a quarter clockwise points to its right.
+    val travelSign = if (xIsAlong) (if (dxMm < 0.0) -1.0 else 1.0) else (if (dyMm < 0.0) -1.0 else 1.0)
+    val minorSigned = if (xIsAlong) dyMm * travelSign else -dxMm * travelSign
     val materialName = measurement.takeoff.material?.trim()?.takeIf(String::isNotEmpty)
     // A rise or drop taken between the ends lifts the far run to another level: a 3D offset.
     // Legs at the very first or last point belong to the risers beyond the job and are left out.

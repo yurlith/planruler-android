@@ -70,13 +70,15 @@ internal fun installerRouteRequest(job: InstallationJob): InstallerRouteRequest 
         input.lateralOffsetMm == 0.0 && input.verticalOffsetMm > 0.0
     val lateralMagnitude = if (climbs) 0.0 else (input.lateralOffsetMm + correction).coerceAtLeast(0.0)
     val verticalMagnitude = if (climbs) (input.verticalOffsetMm + correction).coerceAtLeast(0.0) else input.verticalOffsetMm
+    // The world is right-handed and stands on Z: walking along +X, the right-hand side is -Y.
+    // (Written as 0 - x so that a zero size stays +0.0 and compares equal.)
     val lateral = when (input.lateralDirection) {
-        InstallationLateralDirection.LEFT -> -lateralMagnitude
-        InstallationLateralDirection.RIGHT -> lateralMagnitude
+        InstallationLateralDirection.LEFT -> lateralMagnitude
+        InstallationLateralDirection.RIGHT -> 0.0 - lateralMagnitude
     }
     val vertical = when (input.verticalDirection) {
         InstallationVerticalDirection.UP -> verticalMagnitude
-        InstallationVerticalDirection.DOWN -> -verticalMagnitude
+        InstallationVerticalDirection.DOWN -> 0.0 - verticalMagnitude
     }
     val taskTarget = when (job.taskType) {
         InstallationTaskType.STRAIGHT_INSERT -> Vec3(input.alongMm, 0.0, 0.0)
@@ -138,8 +140,8 @@ private fun radialReferenceOffset(reference: InstallationMeasurementReference, r
 private fun InstallationEndDirection.vector(): Vec3 = when (this) {
     InstallationEndDirection.FORWARD -> Vec3.UNIT_X
     InstallationEndDirection.BACK -> -Vec3.UNIT_X
-    InstallationEndDirection.LEFT -> -Vec3.UNIT_Y
-    InstallationEndDirection.RIGHT -> Vec3.UNIT_Y
+    InstallationEndDirection.LEFT -> Vec3.UNIT_Y
+    InstallationEndDirection.RIGHT -> -Vec3.UNIT_Y
     InstallationEndDirection.UP -> Vec3.UNIT_Z
     InstallationEndDirection.DOWN -> -Vec3.UNIT_Z
 }

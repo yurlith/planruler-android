@@ -681,13 +681,15 @@ private fun DrawScope.drawSceneDimensions(
     palette: PlanRulerScenePalette,
 ) {
     val margin = (mesh.bounds.radius * 0.14).coerceAtLeast(35.0)
-    val overallStart = Vec3(0.0, -margin, 0.0)
-    val overallEnd = Vec3(target.x, -margin, 0.0)
+    // The run's dimension goes on the side the offset does not step to, so the two never cross.
+    val runSide = if (target.y < 0.0) margin else -margin
+    val overallStart = Vec3(0.0, runSide, 0.0)
+    val overallEnd = Vec3(target.x, runSide, 0.0)
     val heightStart = Vec3(-margin, 0.0, 0.0)
     val heightEnd = Vec3(-margin, target.y, 0.0)
     drawDimension3D(projector, overallStart, overallEnd, "$overallLabel X ${sceneNumber(target.x)} mm", palette)
     if (abs(target.y) > 1e-7) {
-        drawDimension3D(projector, heightStart, heightEnd, "$heightLabel Y ${sceneNumber(target.y)} mm", palette)
+        drawDimension3D(projector, heightStart, heightEnd, "$heightLabel Y ${sceneNumber(abs(target.y))} mm", palette)
     }
     if (abs(target.z) > 1e-7) {
         val depthStart = Vec3(target.x, target.y, 0.0)
