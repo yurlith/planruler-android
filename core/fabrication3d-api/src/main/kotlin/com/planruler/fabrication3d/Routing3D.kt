@@ -23,6 +23,10 @@ data class RouteRequest3D(
     val maxElbows: Int? = null,
     val obstacles: List<ObstacleBox3D> = emptyList(),
     val clearanceMm: Double = 0.0,
+    /** What the run leaves from: a flange face, or a pipe end welded to what is already there. */
+    val startTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
+    /** What closes the run on the target face: a flange, or an open pipe end for a site weld. */
+    val endTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
 )
 
 enum class RouteFailureCode3D {

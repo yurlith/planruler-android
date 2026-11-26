@@ -120,11 +120,14 @@ internal fun ParametricAssemblyDrawingCard(
             InstallerCalculationPath.AUTO_ROUTE -> {
                 delay(300)
                 viewModel.setMode(AssemblyWorkspaceMode3D.AUTO)
-                viewModel.solve(
-                    installerRequest.target,
-                    installerRequest.endDirection,
-                    installerRequest.minimumStraightMm,
-                    installerRequest.preferredAngleDeg,
+                viewModel.solveRoute(
+                    target = installerRequest.target,
+                    direction = installerRequest.endDirection,
+                    minimumStraightMm = installerRequest.minimumStraightMm,
+                    preferredAngleDeg = installerRequest.preferredAngleDeg,
+                    start = installerRequest.start,
+                    startTerminal = installerRequest.startTerminal,
+                    endTerminal = installerRequest.endTerminal,
                 )
             }
             InstallerCalculationPath.MANUAL_TEMPLATE -> viewModel.setMode(AssemblyWorkspaceMode3D.MANUAL)

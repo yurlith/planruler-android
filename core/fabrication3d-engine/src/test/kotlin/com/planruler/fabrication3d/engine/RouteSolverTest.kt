@@ -1,8 +1,10 @@
 package com.planruler.fabrication3d.engine
 
 import com.planruler.fabrication3d.Bounds3D
+import com.planruler.fabrication3d.ChainTerminal3D
 import com.planruler.fabrication3d.ChainStep3D
 import com.planruler.fabrication3d.Fabrication3DError
+import com.planruler.fabrication3d.FabricationPartKind
 import com.planruler.fabrication3d.ObstacleBox3D
 import com.planruler.fabrication3d.PortReference3D
 import com.planruler.fabrication3d.RouteFailureCode3D
@@ -14,8 +16,86 @@ import com.planruler.pipecalculator.PIPE_INSTALLATION_SERIES
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.sin
+import kotlin.math.tan
 
 class RouteSolverTest {
+
+    @Test
+    fun `open pipe ends make a flangeless offset whose sloped piece is the textbook cut`() {
+        val profile = installationProfile(50)
+        val solution = engine.router.solve(
+            RouteRequest3D(
+                profile = profile,
+                target = RouteTerminal3D(Vec3(1_600.0, 500.0, 0.0)),
+                preferredElbowAngleDeg = 45.0,
+                startTerminal = ChainTerminal3D.OPEN_END,
+                endTerminal = ChainTerminal3D.OPEN_END,
+            ),
+        ).unwrap()
+
+        assertEquals(RouteTopology3D.ROLLING_OFFSET, solution.topology)
+        assertEquals(5, solution.assembly.parts.size)
+        assertTrue(solution.assembly.parts.none { it.definition.kind == FabricationPartKind.FLANGE })
+        assertEquals(3, solution.pipeCuts.size)
+        assertTrue(solution.targetErrorMm < 1e-6)
+        assertTrue(solution.terminalDirectionErrorDeg < 1e-6)
+        assertValid(solution.assembly)
+
+        val takeout = profile.elbow.centerlineRadiusMm * tan(Math.toRadians(22.5))
+        val gap = profile.weldGapMm
+        val sloped = 500.0 / sin(Math.toRadians(45.0)) - 2 * takeout - 2 * gap
+        assertEquals(sloped, solution.pipeCuts[1].lengthMm, 1e-6)
+        // The rest of the run is shared evenly before and after the offset.
+        val straight = (1_600.0 - 500.0 - 2 * takeout - 2 * gap) / 2.0
+        assertEquals(straight, solution.pipeCuts[0].lengthMm, 1e-6)
+        assertEquals(straight, solution.pipeCuts[2].lengthMm, 1e-6)
+    }
+
+    @Test
+    fun `a flange may close an open start and an open end may close a flanged start`() {
+        val profile = installationProfile(80)
+        listOf(
+            ChainTerminal3D.OPEN_END to ChainTerminal3D.FLANGE,
+            ChainTerminal3D.FLANGE to ChainTerminal3D.OPEN_END,
+        ).forEach { (start, end) ->
+            val solution = engine.router.solve(
+                RouteRequest3D(
+                    profile = profile,
+                    target = RouteTerminal3D(Vec3(2_400.0, 600.0, 400.0)),
+                    preferredElbowAngleDeg = 45.0,
+                    startTerminal = start,
+                    endTerminal = end,
+                ),
+            ).unwrap()
+            assertEquals(1, solution.assembly.parts.count { it.definition.kind == FabricationPartKind.FLANGE })
+            assertTrue("$start → $end: ${solution.targetErrorMm}", solution.targetErrorMm < 1e-6)
+            assertValid(solution.assembly)
+        }
+    }
+
+    @Test
+    fun `open ends also close straight runs, turns and U-turns`() {
+        val profile = installationProfile(50)
+        listOf(
+            RouteTerminal3D(Vec3(1_200.0, 0.0, 0.0)),
+            RouteTerminal3D(Vec3(1_200.0, 900.0, 0.0), Vec3.UNIT_Y),
+            RouteTerminal3D(Vec3(1_400.0, 700.0, 300.0), Vec3.UNIT_Y),
+            RouteTerminal3D(Vec3(0.0, 600.0, 0.0), -Vec3.UNIT_X),
+        ).forEach { target ->
+            val solution = engine.router.solve(
+                RouteRequest3D(
+                    profile = profile,
+                    target = target,
+                    startTerminal = ChainTerminal3D.OPEN_END,
+                    endTerminal = ChainTerminal3D.OPEN_END,
+                ),
+            ).unwrap()
+            assertTrue("$target: ${solution.targetErrorMm}", solution.targetErrorMm < 1e-6)
+            assertTrue(solution.assembly.parts.none { it.definition.kind == FabricationPartKind.FLANGE })
+            assertValid(solution.assembly)
+        }
+    }
 
     @Test
     fun `solver closes a true YZ spatial offset with parallel flange axes`() {

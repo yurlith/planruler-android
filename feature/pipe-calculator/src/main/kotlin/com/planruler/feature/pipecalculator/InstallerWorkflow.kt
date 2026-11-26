@@ -2,6 +2,7 @@ package com.planruler.feature.pipecalculator
 
 import com.planruler.fabrication3d.ChainPlan3D
 import com.planruler.fabrication3d.ChainStep3D
+import com.planruler.fabrication3d.ChainTerminal3D
 import com.planruler.fabrication3d.Vec3
 import com.planruler.model.InstallationEndDirection
 import com.planruler.model.InstallationJob
@@ -27,7 +28,31 @@ internal data class InstallerRouteRequest(
     val minimumStraightMm: Double,
     val manualTemplate: ChainPlan3D? = null,
     val referenceCorrectionMm: Double = 0.0,
+    /** Start face; moved by the site weld gap when the run starts from an existing pipe end. */
+    val start: Vec3 = Vec3.ZERO,
+    val startTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
+    val endTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
+    /** Gap left at each site weld to an existing pipe; zero when both ends are flanges. */
+    val siteWeldGapMm: Double = 0.0,
+    /** The far point exactly as measured on site, before any weld gap is taken off. */
+    val measuredTarget: Vec3 = target,
 )
+
+/** Tasks whose ends stay on one axis: the end always faces forward, whatever an older job said. */
+private val forwardTasks = setOf(
+    InstallationTaskType.STRAIGHT_INSERT,
+    InstallationTaskType.FLAT_OFFSET,
+    InstallationTaskType.ROLLING_OFFSET,
+    InstallationTaskType.FLANGED_OFFSET,
+)
+
+/**
+ * The fitter says what was touched at each end. A flange face is a flange; anything else is
+ * an existing pipe or fitting the spool is welded to on site, so that end stays open and gives
+ * up one weld gap.
+ */
+internal fun InstallationMeasurementReference.terminal(): ChainTerminal3D =
+    if (this == InstallationMeasurementReference.FLANGE_FACE) ChainTerminal3D.FLANGE else ChainTerminal3D.OPEN_END
 
 internal fun installerRouteRequest(job: InstallationJob): InstallerRouteRequest {
     val input = job.input
@@ -57,11 +82,19 @@ internal fun installerRouteRequest(job: InstallationJob): InstallerRouteRequest 
         -> InstallerCalculationPath.MANUAL_TEMPLATE
         else -> InstallerCalculationPath.AUTO_ROUTE
     }
+    val endDirection = if (job.taskType in forwardTasks) Vec3.UNIT_X else input.endDirection.vector()
+    // Prepared templates and the flange-to-flange spool are flanged by definition.
+    val referencesDecide = path == InstallerCalculationPath.AUTO_ROUTE && job.taskType != InstallationTaskType.FLANGED_OFFSET
+    val startTerminal = if (referencesDecide) input.startReference.terminal() else ChainTerminal3D.FLANGE
+    val endTerminal = if (referencesDecide) input.endReference.terminal() else ChainTerminal3D.FLANGE
+    val gap = input.weldGapMm.coerceAtLeast(0.0)
+    val start = if (startTerminal == ChainTerminal3D.OPEN_END) Vec3.UNIT_X * gap else Vec3.ZERO
+    val target = if (endTerminal == ChainTerminal3D.OPEN_END) taskTarget - endDirection * gap else taskTarget
     return InstallerRouteRequest(
         taskType = job.taskType,
         calculationPath = path,
-        target = taskTarget,
-        endDirection = input.endDirection.vector(),
+        target = target,
+        endDirection = endDirection,
         preferredAngleDeg = input.angleDeg.takeIf { job.taskType != InstallationTaskType.STRAIGHT_INSERT },
         minimumStraightMm = input.minimumStraightMm,
         manualTemplate = if (path == InstallerCalculationPath.MANUAL_TEMPLATE) {
@@ -70,6 +103,11 @@ internal fun installerRouteRequest(job: InstallationJob): InstallerRouteRequest 
             null
         },
         referenceCorrectionMm = correction,
+        start = start,
+        startTerminal = startTerminal,
+        endTerminal = endTerminal,
+        siteWeldGapMm = if (startTerminal == ChainTerminal3D.OPEN_END || endTerminal == ChainTerminal3D.OPEN_END) gap else 0.0,
+        measuredTarget = taskTarget,
     )
 }
 

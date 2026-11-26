@@ -53,6 +53,7 @@ import com.planruler.fabrication3d.FabricationPartKind
 import com.planruler.fabrication3d.MeshQuality3D
 import com.planruler.fabrication3d.ParametricAssembly3D
 import com.planruler.fabrication3d.StraightPipeGeometry3D
+import com.planruler.fabrication3d.RouteTopology3D
 import com.planruler.fabrication3d.Vec3
 import com.planruler.fabrication3d.catalog.CatalogPositionInfo3D
 import com.planruler.fabrication3d.catalog.FlangeOption3D
@@ -153,11 +154,14 @@ internal fun ParametricAssembly3DCard(
             InstallerCalculationPath.AUTO_ROUTE -> {
                 delay(300)
                 viewModel.setMode(AssemblyWorkspaceMode3D.AUTO)
-                viewModel.solve(
-                    installerRequest.target,
-                    installerRequest.endDirection,
-                    installerRequest.minimumStraightMm,
-                    installerRequest.preferredAngleDeg,
+                viewModel.solveRoute(
+                    target = installerRequest.target,
+                    direction = installerRequest.endDirection,
+                    minimumStraightMm = installerRequest.minimumStraightMm,
+                    preferredAngleDeg = installerRequest.preferredAngleDeg,
+                    start = installerRequest.start,
+                    startTerminal = installerRequest.startTerminal,
+                    endTerminal = installerRequest.endTerminal,
                 )
             }
             InstallerCalculationPath.MANUAL_TEMPLATE ->
@@ -165,7 +169,8 @@ internal fun ParametricAssembly3DCard(
         }
     }
 
-    val dimensionTarget = installerRequest?.target?.takeIf { state.solution != null } ?: when (state.mode) {
+    // Dimensions show what was measured on site, from existing end to existing end.
+    val dimensionTarget = installerRequest?.measuredTarget?.takeIf { state.solution != null } ?: when (state.mode) {
         AssemblyWorkspaceMode3D.AUTO -> state.solveTarget.takeIf { state.solution != null }
         AssemblyWorkspaceMode3D.MANUAL -> null
         else -> Vec3(result.input.overallFaceToFaceMm, result.input.targetOffsetMm, 0.0)
@@ -345,26 +350,59 @@ private fun InstallerAutomaticSummary(
                 val solution = state.solution
                 Text(
                     t("Маршрут готов", "Route ready") +
-                        " · ${t("отводов", "elbows")}: ${solution.elbowCount}",
+                        " · ${t("отводов", "elbows")}: ${solution.elbowCount}" +
+                        (solution.elbowAnglesDeg.firstOrNull()?.let { " · ${workspaceNumber(abs(it))}°" } ?: ""),
                     fontWeight = FontWeight.Black,
                 )
+                // What to cut, named by its place in the run: the list a fitter takes to the saw.
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    modifier = Modifier.fillMaxWidth().testTag(PipeCalculatorTags.InstallerCutList),
+                ) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(t("Резать трубу", "Cut the pipe"), style = MaterialTheme.typography.labelLarge)
+                        solution.pipeCuts.forEachIndexed { index, cut ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(
+                                    routeCutName(solution.topology, index, solution.pipeCuts.size, language) + " · ${cut.code}",
+                                    modifier = Modifier.weight(1f),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Text(
+                                    "${workspaceNumber(cut.lengthMm)} mm",
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Black,
+                                )
+                            }
+                        }
+                        if (solution.pipeCuts.size > 1) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(t("Всего трубы", "Pipe in total"), style = MaterialTheme.typography.bodySmall)
+                                Text(
+                                    "${workspaceNumber(solution.pipeCuts.sumOf { it.lengthMm })} mm",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
+                        }
+                    }
+                }
+                if (request.siteWeldGapMm > 0.0) {
+                    Text(
+                        t(
+                            "Конец без фланца приваривается на месте: длины уже за вычетом зазора %s мм на стык.",
+                            "An end without a flange is welded on site: lengths already allow a %s mm gap per joint.",
+                        ).format(workspaceNumber(request.siteWeldGapMm)),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
                 Text(
                     t("Ошибка замыкания", "Closure error") + ": ${workspacePrecise(solution.targetErrorMm)} mm",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    items(solution.pipeCuts) { cut ->
-                        Surface(shape = RoundedCornerShape(50), color = MaterialTheme.colorScheme.surface) {
-                            Text(
-                                "${cut.code}: ${workspaceNumber(cut.lengthMm)} mm",
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                fontFamily = FontFamily.Monospace,
-                                fontWeight = FontWeight.Bold,
-                            )
-                        }
-                    }
-                }
             }
             request.calculationPath == InstallerCalculationPath.MANUAL_TEMPLATE && state.editor != null -> {
                 val assembly = state.editor.assembly
@@ -386,6 +424,20 @@ private fun InstallerAutomaticSummary(
                 color = MaterialTheme.colorScheme.primary,
             )
         }
+    }
+}
+
+/** Names a straight cut by where it sits; an offset reads as before, sloped piece, after. */
+internal fun routeCutName(topology: RouteTopology3D, index: Int, count: Int, language: AppLanguage): String {
+    fun t(russian: String, english: String) = localizedUi(language, russian, english)
+    return when {
+        topology == RouteTopology3D.ROLLING_OFFSET && count == 3 -> when (index) {
+            0 -> t("До этажа", "Before the offset")
+            1 -> t("Вставка этажа", "Offset piece")
+            else -> t("После этажа", "After the offset")
+        }
+        topology == RouteTopology3D.STRAIGHT && count == 1 -> t("Прямая вставка", "Straight insert")
+        else -> t("Труба %d", "Pipe %d").format(index + 1)
     }
 }
 

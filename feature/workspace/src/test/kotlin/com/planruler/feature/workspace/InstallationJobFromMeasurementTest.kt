@@ -3,12 +3,15 @@ package com.planruler.feature.workspace
 import com.planruler.model.Calibration
 import com.planruler.model.DocPoint
 import com.planruler.model.InstallationJobId
+import com.planruler.model.InstallationMeasurementReference
 import com.planruler.model.InstallationPipeMaterial
 import com.planruler.model.InstallationTaskType
+import com.planruler.model.InstallationVerticalDirection
 import com.planruler.model.LengthUnit
 import com.planruler.model.Measurement
 import com.planruler.model.MeasurementId
 import com.planruler.model.MeasurementType
+import com.planruler.model.PipeRoute
 import com.planruler.model.TakeoffProperties
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -49,6 +52,36 @@ class InstallationJobFromMeasurementTest {
         assertEquals("Нержавеющая сталь", job.input.materialName)
         assertEquals(measurement.id, job.source2D?.measurementId)
         assertSame(measurement.points, job.source2D?.points)
+    }
+
+    @Test fun `a run with a rise between its ends becomes a 3D offset welded to pipes`() {
+        val measurement = measurement(
+            MeasurementType.POLYLINE,
+            listOf(DocPoint(0.0, 0.0), DocPoint(6.0, 0.0), DocPoint(10.0, -4.0)),
+        ).copy(route = PipeRoute(risesMm = listOf(900.0, -350.0, 120.0)))
+
+        val job = measurementToInstallationJob(measurement, calibration, 42L, InstallationJobId("job"))!!
+
+        assertEquals(InstallationTaskType.ROLLING_OFFSET, job.taskType)
+        assertEquals(350.0, job.input.verticalOffsetMm, 1e-9)
+        assertEquals(InstallationVerticalDirection.DOWN, job.input.verticalDirection)
+        assertEquals(400.0, job.input.lateralOffsetMm, 0.001)
+        assertEquals(InstallationMeasurementReference.PIPE_FACE, job.input.startReference)
+        assertEquals(InstallationMeasurementReference.PIPE_FACE, job.input.endReference)
+    }
+
+    @Test fun `a straight run that only changes level is a vertical offset`() {
+        val measurement = measurement(
+            MeasurementType.POLYLINE,
+            listOf(DocPoint(0.0, 0.0), DocPoint(5.0, 0.0), DocPoint(10.0, 0.0)),
+        ).copy(route = PipeRoute(risesMm = listOf(0.0, 600.0, 0.0)))
+
+        val job = measurementToInstallationJob(measurement, calibration, 42L, InstallationJobId("job"))!!
+
+        assertEquals(InstallationTaskType.ROLLING_OFFSET, job.taskType)
+        assertEquals(0.0, job.input.lateralOffsetMm, 0.0)
+        assertEquals(600.0, job.input.verticalOffsetMm, 1e-9)
+        assertEquals(InstallationVerticalDirection.UP, job.input.verticalDirection)
     }
 
     @Test fun `unsupported or uncalibrated measurement is refused`() {

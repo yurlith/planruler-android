@@ -264,7 +264,7 @@ private fun FabricationWorkshopEditor(
     ) {
         item { managerContent() }
         item { InstallerInputWizard(language = language, draft = draft, onDraft = { draft = it }) }
-        item { WorkshopHero(text, calculation.getOrNull(), draft.nominalDiameter, draft.pressureClass, draft.angle) }
+        item { WorkshopHero(text, calculation.getOrNull(), draft.nominalDiameter, draft.pressureClass, draft.angle, draft.taskType) }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(availableSections) { candidate ->
@@ -568,7 +568,11 @@ private fun WorkshopHero(
     dn: Int,
     pn: Int,
     angle: String,
+    taskType: InstallationTaskType,
 ) {
+    // Cut and weld counts come from the flange-to-flange spool; for any other task the real
+    // pieces are listed with the route, so the header keeps to what is true for every task.
+    val flanged = taskType == InstallationTaskType.FLANGED_OFFSET
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         shape = RoundedCornerShape(28.dp),
@@ -578,10 +582,12 @@ private fun WorkshopHero(
             Text(text.subtitle, style = MaterialTheme.typography.bodyMedium)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { WorkshopPill("DN $dn") }
-                item { WorkshopPill("PN $pn") }
+                if (flanged) item { WorkshopPill("PN $pn") }
                 item { WorkshopPill("$angle°") }
-                item { WorkshopPill(result?.let { "${it.cuts.size} ${text.pipeCutsShort}" } ?: text.checkInput) }
-                item { WorkshopPill(result?.let { "${it.weldCount} ${text.weldsShort}" } ?: "—") }
+                if (flanged) {
+                    item { WorkshopPill(result?.let { "${it.cuts.size} ${text.pipeCutsShort}" } ?: text.checkInput) }
+                    item { WorkshopPill(result?.let { "${it.weldCount} ${text.weldsShort}" } ?: "—") }
+                }
             }
         }
     }
@@ -1228,8 +1234,8 @@ private class WorkshopText(private val language: AppLanguage) {
     private fun t(russian: String, english: String) = localizedUi(language, russian, english)
     val title get() = t("Монтажная мастерская", "Fabrication workshop")
     val subtitle get() = t(
-        "Один узел, один экран: вводите габарит — получаете контур, три длины реза, фланцы, сварные стыки и раскрой.",
-        "One assembly, one screen: enter the envelope and get the contour, three cut lengths, flanges, welds and stock plan.",
+        "Один узел, один экран: вводите размеры по месту — получаете 3D-узел, длины реза и чертёж.",
+        "One assembly, one screen: enter the site dimensions and get the 3D assembly, cut lengths and the drawing.",
     )
     val inputGeometry get() = t("Исходная геометрия", "Input geometry")
     val diameter get() = t("Диаметр трубы", "Pipe diameter")

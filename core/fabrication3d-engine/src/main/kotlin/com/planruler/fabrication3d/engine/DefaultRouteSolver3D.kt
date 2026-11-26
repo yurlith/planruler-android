@@ -28,7 +28,8 @@ import kotlin.math.abs
 import kotlin.math.acos
 
 /**
- * Closes a route between two flange faces anywhere in space. Parallel terminals keep
+ * Closes a route between two terminals anywhere in space: flange faces, or open pipe ends
+ * that are welded on site into an existing line. Parallel terminals keep
  * the proven straight and rolling-offset constructions; non-parallel terminals are
  * turned with an elbow and, when the target sits off the turn plane, the residual is
  * absorbed by a rolling offset placed in the inlet leg.
@@ -96,7 +97,7 @@ internal class DefaultRouteSolver3D(
         return closeRoute(
             request = request,
             start = start,
-            build = { lengths, _ -> listOf(ChainStep3D.Pipe(lengths[0]), ChainStep3D.Flange()) },
+            build = { lengths, _ -> listOf<ChainStep3D>(ChainStep3D.Pipe(lengths[0])).terminated(request) },
             unknownDirections = listOf(direction),
             baseLengths = doubleArrayOf(request.minimumStraightMm),
             topology = RouteTopology3D.STRAIGHT,
@@ -129,8 +130,7 @@ internal class DefaultRouteSolver3D(
                         ChainStep3D.Pipe(lengths[1]),
                         ChainStep3D.Elbow(-angle, 0.0),
                         ChainStep3D.Pipe(lengths[0] / 2.0),
-                        ChainStep3D.Flange(),
-                    )
+                    ).terminated(request)
                 },
                 unknownDirections = listOf(direction, diagonalDirection),
                 baseLengths = doubleArrayOf(2.0 * request.minimumStraightMm, request.minimumStraightMm),
@@ -195,8 +195,7 @@ internal class DefaultRouteSolver3D(
                         ChainStep3D.Pipe(lengths[0]),
                         ChainStep3D.Elbow(turnAngle, rolls[0]),
                         ChainStep3D.Pipe(lengths[1]),
-                        ChainStep3D.Flange(),
-                    )
+                    ).terminated(request)
                 },
                 unknownDirections = listOf(startDirection, targetDirection),
                 baseLengths = doubleArrayOf(request.minimumStraightMm, request.minimumStraightMm),
@@ -237,8 +236,7 @@ internal class DefaultRouteSolver3D(
                         ChainStep3D.Pipe(lengths[0] / 2.0),
                         ChainStep3D.Elbow(turnAngle, rolls[1]),
                         ChainStep3D.Pipe(lengths[2]),
-                        ChainStep3D.Flange(),
-                    )
+                    ).terminated(request)
                 },
                 unknownDirections = listOf(startDirection, diagonalDirection, targetDirection),
                 baseLengths = doubleArrayOf(
@@ -312,8 +310,7 @@ internal class DefaultRouteSolver3D(
                     ChainStep3D.Pipe(lengths[0]),
                     ChainStep3D.Elbow(U_TURN_ELBOW_DEG, rolls[1]),
                     ChainStep3D.Pipe(lengths[1]),
-                    ChainStep3D.Flange(),
-                )
+                ).terminated(request)
             },
             unknownDirections = listOf(crossing, -startDirection),
             baseLengths = doubleArrayOf(minimum, minimum),
@@ -335,8 +332,7 @@ internal class DefaultRouteSolver3D(
                     ChainStep3D.Pipe(lengths[1]),
                     ChainStep3D.Elbow(U_TURN_ELBOW_DEG, rolls[1]),
                     ChainStep3D.Pipe(minimum),
-                    ChainStep3D.Flange(),
-                )
+                ).terminated(request)
             },
             unknownDirections = listOf(startDirection, crossing),
             baseLengths = doubleArrayOf(minimum, minimum),
@@ -378,8 +374,8 @@ internal class DefaultRouteSolver3D(
             val plan = ChainPlan3D(start, build(lengths, rolls))
             val replayed = editor.replay(profile, plan)
                 .fold({ it }, { return Fabrication3DResult.Failure(it) })
-            val achieved = terminalFace(replayed.assembly)
-                ?: return failure(RouteFailureCode3D.INTERNAL_CLOSURE_ERROR, "route has no terminal flange")
+            val achieved = terminalFace(replayed.assembly, request.endTerminal)
+                ?: return failure(RouteFailureCode3D.INTERNAL_CLOSURE_ERROR, "route has no terminal")
             val residual = request.target.face - achieved
             if (residual.length <= POSITION_TOLERANCE_MM) return@repeat
             val closure = LinearClosure3D.solve(unknownDirections, residual)
@@ -412,11 +408,11 @@ internal class DefaultRouteSolver3D(
                 sourceCalculation = "spatial-route-v2",
             ),
         )
-        val achieved = terminalFace(assembly)
-            ?: return failure(RouteFailureCode3D.INTERNAL_CLOSURE_ERROR, "route has no terminal flange")
+        val achieved = terminalFace(assembly, request.endTerminal)
+            ?: return failure(RouteFailureCode3D.INTERNAL_CLOSURE_ERROR, "route has no terminal")
         val targetError = achieved.distanceTo(request.target.face)
-        val terminalFrame = terminalFaceFrame(assembly)
-            ?: return failure(RouteFailureCode3D.INTERNAL_CLOSURE_ERROR, "route has no terminal flange")
+        val terminalFrame = terminalFaceFrame(assembly, request.endTerminal)
+            ?: return failure(RouteFailureCode3D.INTERNAL_CLOSURE_ERROR, "route has no terminal")
         val directionError = Math.toDegrees(
             acos(terminalFrame.dot(targetDirection).coerceIn(-1.0, 1.0)),
         )
@@ -505,21 +501,36 @@ internal class DefaultRouteSolver3D(
         return if (bendIndex == 0) 0 else elbowCount - 1
     }
 
-    private fun terminalFace(assembly: ParametricAssembly3D): Vec3? = terminalFacePort(assembly)?.frame?.position
+    private fun terminalFace(assembly: ParametricAssembly3D, end: ChainTerminal3D): Vec3? =
+        terminalPort(assembly, end)?.frame?.position
 
-    private fun terminalFaceFrame(assembly: ParametricAssembly3D): Vec3? =
-        terminalFacePort(assembly)?.frame?.forward
+    private fun terminalFaceFrame(assembly: ParametricAssembly3D, end: ChainTerminal3D): Vec3? =
+        terminalPort(assembly, end)?.frame?.forward
 
-    private fun terminalFacePort(assembly: ParametricAssembly3D) = assembly.parts
-        .lastOrNull { it.definition.kind == FabricationPartKind.FLANGE }
-        ?.let { assembly.worldPortOrNull(PortReference3D(it.id, "face")) }
+    /** The closing face: the last flange's face, or the free end of the last part of an open run. */
+    private fun terminalPort(assembly: ParametricAssembly3D, end: ChainTerminal3D) = when (end) {
+        ChainTerminal3D.FLANGE -> assembly.parts
+            .lastOrNull { it.definition.kind == FabricationPartKind.FLANGE }
+            ?.let { assembly.worldPortOrNull(PortReference3D(it.id, "face")) }
+        ChainTerminal3D.OPEN_END -> assembly.parts.lastOrNull()?.let { last ->
+            val connected = assembly.connectedPorts()
+            last.definition.ports
+                .map { PortReference3D(last.id, it.id) }
+                .lastOrNull { it !in connected }
+                ?.let(assembly::worldPortOrNull)
+        }
+    }
 
     private fun startOf(request: RouteRequest3D, direction: Vec3) = ChainStart3D(
         position = request.start.face,
         direction = direction,
         upHint = request.start.upHint,
-        terminal = ChainTerminal3D.FLANGE,
+        terminal = request.startTerminal,
     )
+
+    /** Closes a construction with a flange, or leaves its last pipe open for a site weld. */
+    private fun List<ChainStep3D>.terminated(request: RouteRequest3D): List<ChainStep3D> =
+        if (request.endTerminal == ChainTerminal3D.FLANGE) this + ChainStep3D.Flange() else this
 
     private fun elbowAngles(request: RouteRequest3D): List<Double> {
         val allowed = (request.allowedElbowAnglesDeg ?: request.profile.rules.allowedElbowAnglesDeg)
