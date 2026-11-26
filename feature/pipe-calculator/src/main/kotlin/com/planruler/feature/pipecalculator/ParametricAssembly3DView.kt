@@ -683,41 +683,63 @@ private fun DrawScope.drawSceneDimensions(
     val margin = (mesh.bounds.radius * 0.14).coerceAtLeast(35.0)
     // The run's dimension goes on the side the offset does not step to, so the two never cross.
     val runSide = if (target.y < 0.0) margin else -margin
-    val overallStart = Vec3(0.0, runSide, 0.0)
-    val overallEnd = Vec3(target.x, runSide, 0.0)
-    val heightStart = Vec3(-margin, 0.0, 0.0)
-    val heightEnd = Vec3(-margin, target.y, 0.0)
-    drawDimension3D(projector, overallStart, overallEnd, "$overallLabel X ${sceneNumber(target.x)} mm", palette)
-    if (abs(target.y) > 1e-7) {
-        drawDimension3D(projector, heightStart, heightEnd, "$heightLabel Y ${sceneNumber(abs(target.y))} mm", palette)
+    // Most important first: the layout below writes the values in this order.
+    val wanted = buildList {
+        add(Triple(Vec3(0.0, runSide, 0.0), Vec3(target.x, runSide, 0.0), "$overallLabel X ${sceneNumber(target.x)} mm"))
+        if (abs(target.y) > 1e-7) {
+            add(Triple(Vec3(-margin, 0.0, 0.0), Vec3(-margin, target.y, 0.0), "$heightLabel Y ${sceneNumber(abs(target.y))} mm"))
+        }
+        if (abs(target.z) > 1e-7) {
+            add(Triple(Vec3(target.x, target.y, 0.0), Vec3(target.x, target.y, target.z), "Z ${sceneNumber(target.z)} mm"))
+        }
     }
-    if (abs(target.z) > 1e-7) {
-        val depthStart = Vec3(target.x, target.y, 0.0)
-        val depthEnd = Vec3(target.x, target.y, target.z)
-        drawDimension3D(projector, depthStart, depthEnd, "Z ${sceneNumber(target.z)} mm", palette)
+    val shown = wanted.mapNotNull { (start, end, label) ->
+        val a = projector.project(start)
+        val b = projector.project(end)
+        // A dimension seen (nearly) end-on cannot be read in this view, so it is left out.
+        val readable = (b.screen - a.screen).getDistance() >= MIN_READABLE_DIMENSION_PX
+        if (a.visible && b.visible && readable) Triple(a.screen, b.screen, label) else null
+    }
+    if (shown.isEmpty()) return
+    shown.forEach { (a, b, _) -> drawDimensionLine3D(a, b, palette) }
+
+    val paint = scenePaint(palette.dimension, 10.sp.toPx(), bold = true)
+    val metrics = paint.fontMetrics
+    val markers = mesh.labels.mapNotNull { label -> projector.project(label.position).takeIf { it.visible }?.screen }
+    val boxes = layoutSceneDimensionLabels(
+        dimensions = shown.map { (a, b, label) ->
+            SceneDimensionLine(a.x, a.y, b.x, b.y, paint.measureText(label), metrics.descent - metrics.ascent)
+        },
+        // Part markers are drawn over the values, so keep clear of the largest (selected) one.
+        markers = markers.map { SceneMarker(it.x, it.y, SELECTED_PART_MARKER_RADIUS) },
+        // The markers follow the parts in order, so joining them traces the route on screen.
+        route = markers.zipWithNext { a, b -> SceneSegment(a.x, a.y, b.x, b.y) },
+        width = size.width,
+        height = size.height,
+    )
+    drawIntoCanvas { canvas ->
+        boxes.forEachIndexed { index, box ->
+            if (box != null) {
+                // Centred in its box: the baseline sits half the font's height below the middle.
+                val baseline = box.centerY - (metrics.ascent + metrics.descent) / 2f
+                canvas.nativeCanvas.drawText(shown[index].third, box.centerX, baseline, paint)
+            }
+        }
     }
 }
 
-private fun DrawScope.drawDimension3D(
-    projector: SceneProjector3D,
-    start: Vec3,
-    end: Vec3,
-    label: String,
-    palette: PlanRulerScenePalette,
-) {
-    val a = projector.project(start)
-    val b = projector.project(end)
-    if (!a.visible || !b.visible) return
-    drawLine(palette.dimension, a.screen, b.screen, 1.8f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 5f)))
-    val vector = b.screen - a.screen
+private fun DrawScope.drawDimensionLine3D(a: Offset, b: Offset, palette: PlanRulerScenePalette) {
+    drawLine(palette.dimension, a, b, 1.8f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 5f)))
+    val vector = b - a
     val length = sqrt(vector.x * vector.x + vector.y * vector.y).coerceAtLeast(1f)
     val normal = Offset(-vector.y / length, vector.x / length) * 7f
-    drawLine(palette.dimension, a.screen - normal, a.screen + normal, 2f)
-    drawLine(palette.dimension, b.screen - normal, b.screen + normal, 2f)
-    val midpoint = (a.screen + b.screen) * 0.5f
-    val paint = scenePaint(palette.dimension, 10.sp.toPx(), bold = true)
-    drawIntoCanvas { canvas -> canvas.nativeCanvas.drawText(label, midpoint.x, midpoint.y - 9f, paint) }
+    drawLine(palette.dimension, a - normal, a + normal, 2f)
+    drawLine(palette.dimension, b - normal, b + normal, 2f)
 }
+
+private const val PART_MARKER_RADIUS = 15f
+private const val SELECTED_PART_MARKER_RADIUS = 18f
+private const val MIN_READABLE_DIMENSION_PX = 16f
 
 private fun DrawScope.drawPartLabels(
     mesh: AssemblyMesh3D,
@@ -730,7 +752,7 @@ private fun DrawScope.drawPartLabels(
         val point = projector.project(label.position)
         if (point.visible) {
             val selected = label.partId == selectedPartId
-            val radius = if (selected) 18f else 15f
+            val radius = if (selected) SELECTED_PART_MARKER_RADIUS else PART_MARKER_RADIUS
             drawCircle(
                 color = if (selected) palette.selection else palette.labelBackdrop,
                 radius = radius,
