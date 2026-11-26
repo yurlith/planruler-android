@@ -6,6 +6,7 @@ import com.planruler.model.InstallationJob
 import com.planruler.model.InstallationJobInput
 import com.planruler.model.InstallationLateralDirection
 import com.planruler.model.InstallationMeasurementReference
+import com.planruler.model.InstallationOffsetPlacement
 import com.planruler.model.InstallationPipeMaterial
 import com.planruler.model.InstallationTaskType
 import com.planruler.model.InstallationVerticalDirection
@@ -33,11 +34,17 @@ internal data class InstallerDraft(
     val quantity: String,
     val sawKerf: String,
     val stockLengthMm: Int,
+    val offsetPlacement: InstallationOffsetPlacement = InstallationOffsetPlacement.CENTER,
+    val offsetLead: String = "300",
+    /** A flat offset climbs or drops instead of stepping sideways; its size then sits in [vertical]. */
+    val flatVertical: Boolean = false,
 ) {
     fun toInputOrNull(): InstallationJobInput? = runCatching {
         val alongMm = along.installerNumber().also { require(it > 0.0) }
         val lateralMm = lateral.installerNumber().also { require(it >= 0.0) }
         val verticalMm = vertical.installerNumber().also { require(it >= 0.0) }
+        val leadMm = runCatching { offsetLead.installerNumber() }.getOrNull()?.takeIf { it > 0.0 }
+        require(offsetPlacement != InstallationOffsetPlacement.EXACT || leadMm != null)
         InstallationJobInput(
             nominalDiameter = nominalDiameter,
             pressureClass = pressureClass,
@@ -60,10 +67,64 @@ internal data class InstallerDraft(
             quantity = quantity.installerWholeNumber().also { require(it > 0) },
             sawKerfMm = sawKerf.installerNumber().also { require(it >= 0.0) },
             stockLengthMm = stockLengthMm,
+            offsetPlacement = offsetPlacement,
+            offsetLeadMm = leadMm ?: 300.0,
         )
     }.getOrNull()
 
-    fun selectTask(task: InstallationTaskType): InstallerDraft = copy(
+    /** The one size a flat offset asks for, wherever it points. */
+    val flatOffset: String get() = if (flatVertical) vertical else lateral
+
+    fun withFlatOffset(value: String): InstallerDraft =
+        if (flatVertical) copy(vertical = value, lateral = "0") else copy(lateral = value, vertical = "0")
+
+    /** Points a flat offset sideways or up/down, carrying the typed size over to the new plane. */
+    fun withFlatDirection(direction: FlatOffsetDirection): InstallerDraft {
+        val size = flatOffset
+        return when (direction) {
+            FlatOffsetDirection.LEFT, FlatOffsetDirection.RIGHT -> copy(
+                flatVertical = false,
+                lateral = size,
+                vertical = "0",
+                lateralDirection = if (direction == FlatOffsetDirection.LEFT) {
+                    InstallationLateralDirection.LEFT
+                } else {
+                    InstallationLateralDirection.RIGHT
+                },
+            )
+            FlatOffsetDirection.UP, FlatOffsetDirection.DOWN -> copy(
+                flatVertical = true,
+                vertical = size,
+                lateral = "0",
+                verticalDirection = if (direction == FlatOffsetDirection.UP) {
+                    InstallationVerticalDirection.UP
+                } else {
+                    InstallationVerticalDirection.DOWN
+                },
+            )
+        }
+    }
+
+    val flatDirection: FlatOffsetDirection get() = when {
+        flatVertical && verticalDirection == InstallationVerticalDirection.UP -> FlatOffsetDirection.UP
+        flatVertical -> FlatOffsetDirection.DOWN
+        lateralDirection == InstallationLateralDirection.LEFT -> FlatOffsetDirection.LEFT
+        else -> FlatOffsetDirection.RIGHT
+    }
+
+    fun selectTask(task: InstallationTaskType): InstallerDraft {
+        if (task == taskType) return this
+        val switched = switchTo(task)
+        // A pure rise or drop stays one: the flat offset then climbs instead of stepping sideways.
+        val onlyRises = lateral.isZeroSize() && !vertical.isZeroSize()
+        return if (task == InstallationTaskType.FLAT_OFFSET && onlyRises) {
+            switched.copy(flatVertical = true, lateral = "0", vertical = vertical)
+        } else {
+            switched
+        }
+    }
+
+    private fun switchTo(task: InstallationTaskType): InstallerDraft = copy(
         taskType = task,
         nominalDiameter = if (task == InstallationTaskType.REDUCER && nominalDiameter == 15) 20 else nominalDiameter,
         lateral = when (task) {
@@ -85,6 +146,7 @@ internal data class InstallerDraft(
         },
         startReference = referenceFor(task, startReference),
         endReference = referenceFor(task, endReference),
+        flatVertical = false,
     )
 
     /**
@@ -122,9 +184,16 @@ internal data class InstallerDraft(
             quantity = job.input.quantity.toString(),
             sawKerf = editableInstallerNumber(job.input.sawKerfMm),
             stockLengthMm = job.input.stockLengthMm,
+            offsetPlacement = job.input.offsetPlacement,
+            offsetLead = editableInstallerNumber(job.input.offsetLeadMm),
+            flatVertical = job.taskType == InstallationTaskType.FLAT_OFFSET &&
+                job.input.lateralOffsetMm == 0.0 && job.input.verticalOffsetMm > 0.0,
         )
     }
 }
+
+/** The four ways a flat offset can step: sideways in plan, or up and down in elevation. */
+internal enum class FlatOffsetDirection { LEFT, RIGHT, UP, DOWN }
 
 private val offsetTasks = setOf(InstallationTaskType.FLAT_OFFSET, InstallationTaskType.ROLLING_OFFSET)
 
@@ -141,6 +210,9 @@ internal fun InstallationTaskType.usesLateral() =
 
 internal fun InstallationTaskType.usesVertical() = usesLateral() && this != InstallationTaskType.FLAT_OFFSET
 
+/** Two-elbow offsets between parallel ends: these can sit anywhere along the measured run. */
+internal fun InstallationTaskType.isOffset() = this in offsetTasks
+
 internal fun InstallationTaskType.usesEndDirection() = this !in setOf(
     InstallationTaskType.STRAIGHT_INSERT,
     InstallationTaskType.FLAT_OFFSET,
@@ -150,6 +222,8 @@ internal fun InstallationTaskType.usesEndDirection() = this !in setOf(
 )
 
 internal fun String.installerNumber(): Double = trim().replace(',', '.').toDouble()
+
+private fun String.isZeroSize(): Boolean = runCatching { installerNumber() == 0.0 }.getOrDefault(true)
 
 internal fun String.installerWholeNumber(): Int {
     val value = installerNumber()

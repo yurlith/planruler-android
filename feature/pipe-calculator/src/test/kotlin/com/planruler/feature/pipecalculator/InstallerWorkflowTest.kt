@@ -3,6 +3,7 @@ package com.planruler.feature.pipecalculator
 import com.planruler.fabrication3d.ChainStep3D
 import com.planruler.fabrication3d.ChainTerminal3D
 import com.planruler.fabrication3d.FabricationPartKind
+import com.planruler.fabrication3d.OffsetPlacement3D
 import com.planruler.fabrication3d.RouteRequest3D
 import com.planruler.fabrication3d.RouteTerminal3D
 import com.planruler.fabrication3d.Vec3
@@ -15,6 +16,7 @@ import com.planruler.model.InstallationJobId
 import com.planruler.model.InstallationJobInput
 import com.planruler.model.InstallationLateralDirection
 import com.planruler.model.InstallationMeasurementReference
+import com.planruler.model.InstallationOffsetPlacement
 import com.planruler.model.InstallationTaskType
 import com.planruler.model.InstallationVerticalDirection
 import com.planruler.pipecalculator.FlangedOffsetAssemblyInput
@@ -97,6 +99,53 @@ class InstallerWorkflowTest {
         )
         assertEquals(-60.3, request.referenceCorrectionMm, 1e-9)
         assertEquals(439.7, request.target.y, 1e-9)
+    }
+
+    @Test fun `a flat offset that climbs is solved in the vertical plane with its edge correction`() {
+        val request = installerRouteRequest(
+            job(
+                InstallationTaskType.FLAT_OFFSET,
+                InstallationJobInput(
+                    nominalDiameter = 50,
+                    alongMm = 1_600.0,
+                    lateralOffsetMm = 0.0,
+                    verticalOffsetMm = 400.0,
+                    verticalDirection = InstallationVerticalDirection.DOWN,
+                    startReference = InstallationMeasurementReference.PIPE_OUTER_EDGE,
+                    endReference = InstallationMeasurementReference.PIPE_OUTER_EDGE,
+                ),
+            ),
+        )
+        assertEquals(Vec3(1_600.0, 0.0, -400.0), request.measuredTarget)
+
+        val crossed = installerRouteRequest(
+            job(
+                InstallationTaskType.FLAT_OFFSET,
+                InstallationJobInput(
+                    nominalDiameter = 50,
+                    lateralOffsetMm = 0.0,
+                    verticalOffsetMm = 400.0,
+                    startReference = InstallationMeasurementReference.PIPE_INNER_EDGE,
+                    endReference = InstallationMeasurementReference.PIPE_OUTER_EDGE,
+                ),
+            ),
+        )
+        assertEquals(460.3, crossed.measuredTarget.z, 1e-9)
+        assertEquals(0.0, crossed.measuredTarget.y, 0.0)
+    }
+
+    @Test fun `the placement of an offset reaches the solver`() {
+        fun placed(placement: InstallationOffsetPlacement) = installerRouteRequest(
+            job(
+                InstallationTaskType.ROLLING_OFFSET,
+                InstallationJobInput(offsetPlacement = placement, offsetLeadMm = 20.0, minimumStraightMm = 50.0),
+            ),
+        ).offsetPlacement
+        assertEquals(OffsetPlacement3D.Share(0.0), placed(InstallationOffsetPlacement.START))
+        assertEquals(OffsetPlacement3D.CENTERED, placed(InstallationOffsetPlacement.CENTER))
+        assertEquals(OffsetPlacement3D.Share(1.0), placed(InstallationOffsetPlacement.END))
+        // An exact cut shorter than the shortest allowed straight is lifted to it.
+        assertEquals(OffsetPlacement3D.LeadCut(50.0), placed(InstallationOffsetPlacement.EXACT))
     }
 
     @Test fun `tee obstacle and reducer select manual fabrication templates`() {
@@ -216,6 +265,7 @@ class InstallerWorkflowTest {
         minimumStraightMm = minimumStraightMm,
         startTerminal = startTerminal,
         endTerminal = endTerminal,
+        offsetPlacement = offsetPlacement,
     )
 
     @Test fun `prepared fitter templates replay through the real chain engine`() {

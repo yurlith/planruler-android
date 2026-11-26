@@ -11,6 +11,7 @@ import com.planruler.fabrication3d.Fabrication3DError
 import com.planruler.fabrication3d.Fabrication3DResult
 import com.planruler.fabrication3d.FabricationPartKind
 import com.planruler.fabrication3d.ObstacleBox3D
+import com.planruler.fabrication3d.OffsetPlacement3D
 import com.planruler.fabrication3d.ParameterRule3D
 import com.planruler.fabrication3d.ParametricAssembly3D
 import com.planruler.fabrication3d.PipeCut3D
@@ -124,16 +125,19 @@ internal class DefaultRouteSolver3D(
                 request = request,
                 start = start,
                 build = { lengths, rolls ->
+                    // Both straights run along the same axis, so only their sum closes the
+                    // route; the placement decides how that sum is split around the offset.
+                    val lead = leadStraight(request, lengths[0])
                     listOf(
-                        ChainStep3D.Pipe(lengths[0] / 2.0),
+                        ChainStep3D.Pipe(lead),
                         ChainStep3D.Elbow(angle, rolls[0]),
                         ChainStep3D.Pipe(lengths[1]),
                         ChainStep3D.Elbow(-angle, 0.0),
-                        ChainStep3D.Pipe(lengths[0] / 2.0),
+                        ChainStep3D.Pipe(lengths[0] - lead),
                     ).terminated(request)
                 },
                 unknownDirections = listOf(direction, diagonalDirection),
-                baseLengths = doubleArrayOf(2.0 * request.minimumStraightMm, request.minimumStraightMm),
+                baseLengths = doubleArrayOf(initialOffsetStraight(request), request.minimumStraightMm),
                 topology = RouteTopology3D.ROLLING_OFFSET,
                 diagnostics = listOf(RouteDiagnostic3D.PARALLEL_TERMINALS, RouteDiagnostic3D.TWO_ELBOW_OFFSET),
                 elbowAngles = listOf(angle, -angle),
@@ -490,6 +494,26 @@ internal class DefaultRouteSolver3D(
         return ok(rolls)
     }
 
+    /** The cut before a two-elbow offset, out of [totalMm] of straight shared by both cuts. */
+    private fun leadStraight(request: RouteRequest3D, totalMm: Double): Double =
+        when (val placement = request.offsetPlacement) {
+            is OffsetPlacement3D.Share -> {
+                val minimum = minimumCut(request)
+                minimum + placement.leadShare * (totalMm - 2.0 * minimum)
+            }
+            is OffsetPlacement3D.LeadCut -> placement.lengthMm
+        }
+
+    /** A first guess whose cuts are all real pipes, so the first replay cannot fail. */
+    private fun initialOffsetStraight(request: RouteRequest3D): Double =
+        when (val placement = request.offsetPlacement) {
+            is OffsetPlacement3D.Share -> 2.0 * minimumCut(request)
+            is OffsetPlacement3D.LeadCut -> placement.lengthMm + minimumCut(request)
+        }
+
+    private fun minimumCut(request: RouteRequest3D): Double =
+        maxOf(request.minimumStraightMm, request.profile.rules.minPipeLengthMm)
+
     private fun shortestCut(steps: List<ChainStep3D>): Double = steps
         .filterIsInstance<ChainStep3D.Pipe>()
         .minOfOrNull { it.lengthMm }
@@ -553,6 +577,16 @@ internal class DefaultRouteSolver3D(
         requireAtLeast("minimumStraightMm", request.minimumStraightMm, request.profile.rules.minPipeLengthMm)
             ?.let { return it }
         requireAtLeast("clearanceMm", request.clearanceMm, 0.0)?.let { return it }
+        when (val placement = request.offsetPlacement) {
+            is OffsetPlacement3D.Share -> {
+                requireFinite("offsetPlacement.leadShare", placement.leadShare)?.let { return it }
+                if (placement.leadShare < 0.0 || placement.leadShare > 1.0) {
+                    return invalid("offsetPlacement.leadShare", ParameterRule3D.OUT_OF_RANGE, placement.leadShare)
+                }
+            }
+            is OffsetPlacement3D.LeadCut ->
+                requireAtLeast("offsetPlacement.lengthMm", placement.lengthMm, minimumCut(request))?.let { return it }
+        }
         request.preferredElbowAngleDeg?.let { preferred ->
             requireFinite("preferredElbowAngleDeg", preferred)?.let { return it }
             if (!request.profile.rules.permits(preferred)) {

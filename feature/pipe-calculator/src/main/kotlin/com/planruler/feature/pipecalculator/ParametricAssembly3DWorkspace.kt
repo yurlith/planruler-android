@@ -51,6 +51,7 @@ import com.planruler.fabrication3d.ElbowRadiusMode3D
 import com.planruler.fabrication3d.Fabrication3DEngine
 import com.planruler.fabrication3d.FabricationPartKind
 import com.planruler.fabrication3d.MeshQuality3D
+import com.planruler.fabrication3d.OffsetPlacement3D
 import com.planruler.fabrication3d.ParametricAssembly3D
 import com.planruler.fabrication3d.StraightPipeGeometry3D
 import com.planruler.fabrication3d.RouteTopology3D
@@ -69,6 +70,8 @@ import com.planruler.pipecalculator.theoreticalPipeMassKg
 import kotlinx.coroutines.delay
 import java.util.Locale
 import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 
 @Composable
 internal fun ParametricAssembly3DCard(
@@ -80,6 +83,8 @@ internal fun ParametricAssembly3DCard(
     onChainRecipeChanged: (String) -> Unit = {},
     installerRequest: InstallerRouteRequest? = null,
     showAdvancedControls: Boolean = true,
+    /** Lets the advice under a failed offset switch the fitter's elbow angle in one tap. */
+    onInstallerAngle: ((Double) -> Unit)? = null,
 ) {
     val text = remember(language) { Workspace3DText(language) }
     val messages = remember(language) { Fabrication3DMessages(language) }
@@ -162,6 +167,7 @@ internal fun ParametricAssembly3DCard(
                     start = installerRequest.start,
                     startTerminal = installerRequest.startTerminal,
                     endTerminal = installerRequest.endTerminal,
+                    offsetPlacement = installerRequest.offsetPlacement,
                 )
             }
             InstallerCalculationPath.MANUAL_TEMPLATE ->
@@ -210,6 +216,7 @@ internal fun ParametricAssembly3DCard(
                         state = state,
                         request = installerRequest,
                         language = language,
+                        onAngle = onInstallerAngle,
                     )
                 } else {
                     ModeSelector(
@@ -335,6 +342,7 @@ private fun InstallerAutomaticSummary(
     state: Assembly3DUiState,
     request: InstallerRouteRequest,
     language: AppLanguage,
+    onAngle: ((Double) -> Unit)?,
 ) {
     fun t(russian: String, english: String) = localizedUi(language, russian, english)
     WorkspaceSection(
@@ -388,6 +396,12 @@ private fun InstallerAutomaticSummary(
                         }
                     }
                 }
+                val profile = state.profile
+                val solvedAngle = solution.elbowAnglesDeg.firstOrNull()?.let(::abs)
+                val setOut = if (profile != null && solvedAngle != null) offsetSetOut(request, profile, solvedAngle) else null
+                if (setOut != null && solution.topology == RouteTopology3D.ROLLING_OFFSET && solution.pipeCuts.size == 3) {
+                    OffsetSetOutPanel(setOut, leadCutMm = solution.pipeCuts.first().lengthMm, language = language)
+                }
                 if (request.siteWeldGapMm > 0.0) {
                     Text(
                         t(
@@ -404,6 +418,9 @@ private fun InstallerAutomaticSummary(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            request.calculationPath == InstallerCalculationPath.AUTO_ROUTE && state.error != null &&
+                state.profile != null && request.taskType.isOffset() ->
+                OffsetAdvice(request, state.profile, language, onAngle)
             request.calculationPath == InstallerCalculationPath.MANUAL_TEMPLATE && state.editor != null -> {
                 val assembly = state.editor.assembly
                 Text(t("Шаблон узла готов", "Job template ready"), fontWeight = FontWeight.Black)
@@ -423,6 +440,109 @@ private fun InstallerAutomaticSummary(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary,
             )
+        }
+    }
+}
+
+/** Where to mark the bends, measured from the start point the fitter taped from. */
+@Composable
+private fun OffsetSetOutPanel(setOut: OffsetSetOut, leadCutMm: Double, language: AppLanguage) {
+    fun t(russian: String, english: String) = localizedUi(language, russian, english)
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surface,
+        modifier = Modifier.fillMaxWidth().testTag(PipeCalculatorTags.InstallerSetOut),
+    ) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(t("Разметка от точки начала", "Set-out from the start point"), style = MaterialTheme.typography.labelLarge)
+            SetOutRow(t("Центр 1-го отвода", "1st bend centre"), "${workspaceNumber(setOut.firstBendMm(leadCutMm))} mm")
+            SetOutRow(t("Центр 2-го отвода", "2nd bend centre"), "${workspaceNumber(setOut.secondBendMm(leadCutMm))} mm")
+            SetOutRow(t("Между центрами отводов", "Between bend centres"), "${workspaceNumber(setOut.travelMm)} mm")
+            SetOutRow(t("Смещение по осям", "Offset between axes"), "${workspaceNumber(setOut.offsetMm)} mm")
+            setOut.rollDeg?.let { roll ->
+                SetOutRow(t("Поворот плоскости от вертикали", "Roll of the plane from vertical"), "${workspaceNumber(roll)}°")
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetOutRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+        Text(value, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+    }
+}
+
+/**
+ * Says what keeps the offset from fitting and which change would make it fit: a longer run,
+ * a larger offset, a shorter cut before it, or an elbow angle that does fit as measured.
+ */
+@Composable
+private fun OffsetAdvice(
+    request: InstallerRouteRequest,
+    profile: AssemblyProfile3D,
+    language: AppLanguage,
+    onAngle: ((Double) -> Unit)?,
+) {
+    fun t(russian: String, english: String) = localizedUi(language, russian, english)
+    val angle = request.preferredAngleDeg ?: 45.0
+    val setOut = offsetSetOut(request, profile, angle)
+    val fitting = remember(request, profile) { fittingOffsetAngles(request, profile) }
+    val angleText = "${editableInstallerNumber(angle)}°"
+    Column(
+        Modifier.fillMaxWidth().testTag(PipeCalculatorTags.InstallerOffsetAdvice),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(t("Этаж не помещается", "The offset does not fit"), fontWeight = FontWeight.Black)
+        if (setOut != null && !setOut.alongFits) {
+            Text(
+                t(
+                    "При %1\$s нужно не меньше %2\$s мм вдоль трассы, сейчас %3\$s мм.",
+                    "At %1\$s the run needs at least %2\$s mm, now %3\$s mm.",
+                ).format(angleText, ceil(setOut.minimumAlongMm).toInt(), workspaceNumber(setOut.alongMm)),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        if (setOut != null && !setOut.offsetFits) {
+            Text(
+                t(
+                    "При %1\$s смещение должно быть не меньше %2\$s мм, сейчас %3\$s мм.",
+                    "At %1\$s the offset must be at least %2\$s mm, now %3\$s mm.",
+                ).format(angleText, ceil(setOut.minimumOffsetMm).toInt(), workspaceNumber(setOut.offsetMm)),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        val lead = request.offsetPlacement as? OffsetPlacement3D.LeadCut
+        if (setOut != null && setOut.fits && lead != null && lead.lengthMm > setOut.maximumLeadMm) {
+            Text(
+                t(
+                    "Отрезок до этажа — не больше %s мм, иначе после этажа не останется трубы.",
+                    "The cut before the offset can be at most %s mm, or no pipe is left after it.",
+                ).format(floor(setOut.maximumLeadMm).toInt().coerceAtLeast(0)),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        if (fitting.isEmpty()) {
+            Text(
+                t(
+                    "Ни один стандартный угол не помещается между этими концами — проверьте замеры.",
+                    "No standard angle fits between these ends; check the measurements.",
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        } else if (onAngle != null && fitting.none { abs(it - angle) < 1e-9 }) {
+            Text(t("Помещается с углом:", "Fits with an angle of:"), style = MaterialTheme.typography.bodySmall)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                items(fitting) { candidate ->
+                    FilterChip(
+                        selected = false,
+                        onClick = { onAngle(candidate) },
+                        label = { Text("${editableInstallerNumber(candidate)}°") },
+                    )
+                }
+            }
         }
     }
 }

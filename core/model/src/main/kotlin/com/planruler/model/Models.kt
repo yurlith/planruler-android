@@ -500,6 +500,10 @@ enum class InstallationVerticalDirection { UP, DOWN }
 @Serializable
 enum class InstallationEndDirection { FORWARD, LEFT, RIGHT, UP, DOWN, BACK }
 
+/** Where a two-elbow offset sits between the measured ends: near one end, centred, or exact. */
+@Serializable
+enum class InstallationOffsetPlacement { START, CENTER, END, EXACT }
+
 /**
  * Stable input owned by the project model rather than a Compose screen.
  * Values use millimetres/degrees so a job can be recalculated after an app restart.
@@ -528,6 +532,9 @@ data class InstallationJobInput(
     val quantity: Int = 1,
     val sawKerfMm: Double = 3.0,
     val stockLengthMm: Int = 6_000,
+    val offsetPlacement: InstallationOffsetPlacement = InstallationOffsetPlacement.CENTER,
+    /** Cut before the offset when [offsetPlacement] is [InstallationOffsetPlacement.EXACT]. */
+    val offsetLeadMm: Double = 300.0,
 )
 
 /** Exact 2D provenance retained so the workshop never has to reverse-engineer the plan. */

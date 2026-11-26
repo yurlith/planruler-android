@@ -17,6 +17,7 @@ import com.planruler.fabrication3d.Fabrication3DEngine
 import com.planruler.fabrication3d.Fabrication3DError
 import com.planruler.fabrication3d.Fabrication3DResult
 import com.planruler.fabrication3d.MeshQuality3D
+import com.planruler.fabrication3d.OffsetPlacement3D
 import com.planruler.fabrication3d.ParametricAssembly3D
 import com.planruler.fabrication3d.RouteRequest3D
 import com.planruler.fabrication3d.RouteSolution3D
@@ -195,6 +196,7 @@ internal class Assembly3DViewModel(
         start: Vec3 = Vec3.ZERO,
         startTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
         endTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
+        offsetPlacement: OffsetPlacement3D = OffsetPlacement3D.CENTERED,
     ) {
         // Never leave an older route visible while a new set of site dimensions is being checked.
         _state.update { it.copy(busy = true, solution = null, solveTarget = null, error = null) }
@@ -212,6 +214,7 @@ internal class Assembly3DViewModel(
                     minimumStraightMm = minimumStraightMm,
                     startTerminal = startTerminal,
                     endTerminal = endTerminal,
+                    offsetPlacement = offsetPlacement,
                 ),
             )
             outcome.fold(

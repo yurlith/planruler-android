@@ -108,11 +108,31 @@ internal class InstallationJobsViewModel(
         }
     }
 
-    fun createJob(name: String) {
+    /**
+     * Creates a job in the selected project. A [seed] carries over what was already calculated
+     * without a job, so saving it never means typing the site sizes again.
+     */
+    fun createJob(name: String, seed: InstallationJob? = null) {
         flushPending()
         val projectId = _state.value.selectedProjectId ?: return
         viewModelScope.launch {
-            applyResult(projectId, repositoryCall { repository.createInstallationJob(projectId, name) })
+            val created = repositoryCall { repository.createInstallationJob(projectId, name) }
+            val result = if (seed != null && created is ProjectResult.Ok) {
+                repositoryCall {
+                    repository.saveInstallationJob(
+                        projectId,
+                        created.value.copy(
+                            taskType = seed.taskType,
+                            input = seed.input,
+                            chainRecipe = seed.chainRecipe,
+                            activeSection = seed.activeSection,
+                        ),
+                    )
+                }
+            } else {
+                created
+            }
+            applyResult(projectId, result)
         }
     }
 

@@ -128,6 +128,7 @@ internal fun ParametricAssemblyDrawingCard(
                     start = installerRequest.start,
                     startTerminal = installerRequest.startTerminal,
                     endTerminal = installerRequest.endTerminal,
+                    offsetPlacement = installerRequest.offsetPlacement,
                 )
             }
             InstallerCalculationPath.MANUAL_TEMPLATE -> viewModel.setMode(AssemblyWorkspaceMode3D.MANUAL)

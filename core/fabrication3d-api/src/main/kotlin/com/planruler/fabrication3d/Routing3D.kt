@@ -27,7 +27,25 @@ data class RouteRequest3D(
     val startTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
     /** What closes the run on the target face: a flange, or an open pipe end for a site weld. */
     val endTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
+    /** Where a two-elbow offset between parallel terminals sits along the run. */
+    val offsetPlacement: OffsetPlacement3D = OffsetPlacement3D.CENTERED,
 )
+
+/**
+ * Where a two-elbow offset sits between parallel terminals. The straight length the offset
+ * leaves over is shared between the cut before it and the cut after it.
+ */
+sealed interface OffsetPlacement3D {
+    /** [leadShare] of the spare straight goes before the offset: 0 right at the start, 1 at the end. */
+    data class Share(val leadShare: Double) : OffsetPlacement3D
+
+    /** The cut before the offset is fixed; the cut after it takes what is left. */
+    data class LeadCut(val lengthMm: Double) : OffsetPlacement3D
+
+    companion object {
+        val CENTERED: OffsetPlacement3D = Share(0.5)
+    }
+}
 
 enum class RouteFailureCode3D {
     INVALID_REQUEST,
