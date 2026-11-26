@@ -8,8 +8,10 @@ import com.planruler.model.InstallationJobId
 import com.planruler.model.InstallationJobInput
 import com.planruler.model.InstallationJobSource2D
 import com.planruler.model.InstallationLateralDirection
+import com.planruler.model.InstallationMeasurementReference
 import com.planruler.model.InstallationPipeMaterial
 import com.planruler.model.InstallationTaskType
+import com.planruler.model.InstallationVerticalDirection
 import com.planruler.model.Measurement
 import com.planruler.model.MeasurementType
 import kotlin.math.abs
@@ -44,13 +46,22 @@ internal fun measurementToInstallationJob(
     } else {
         terminalAlongMm.takeIf { it > 0.5 } ?: totalLengthMm
     }
-    val minorSigned = if (xIsAlong) dyMm else dxMm
+    // Positive when the far end lies to the right of the direction of travel. The page's y
+    // runs down, so turning the travel direction a quarter clockwise points to its right.
+    val travelSign = if (xIsAlong) (if (dxMm < 0.0) -1.0 else 1.0) else (if (dyMm < 0.0) -1.0 else 1.0)
+    val minorSigned = if (xIsAlong) dyMm * travelSign else -dxMm * travelSign
     val materialName = measurement.takeoff.material?.trim()?.takeIf(String::isNotEmpty)
-    val task = if (measurement.points.size == 2 || lateralMm <= 0.5) {
-        InstallationTaskType.STRAIGHT_INSERT
-    } else {
-        InstallationTaskType.FLAT_OFFSET
+    // A rise or drop taken between the ends lifts the far run to another level: a 3D offset.
+    // Legs at the very first or last point belong to the risers beyond the job and are left out.
+    val route = measurement.route
+    val interiorRiseMm = if (route == null) 0.0 else (1 until measurement.points.size - 1).sumOf(route::riseAt)
+    val rises = abs(interiorRiseMm) > 0.5
+    val task = when {
+        rises -> InstallationTaskType.ROLLING_OFFSET
+        measurement.points.size == 2 || lateralMm <= 0.5 -> InstallationTaskType.STRAIGHT_INSERT
+        else -> InstallationTaskType.FLAT_OFFSET
     }
+    val straight = task == InstallationTaskType.STRAIGHT_INSERT
 
     return InstallationJob(
         id = id,
@@ -73,15 +84,20 @@ internal fun measurementToInstallationJob(
             material = installationMaterial(materialName),
             materialName = materialName,
             inputMode = InstallationInputMode.BASIC,
+            // A run measured on a plan joins pipes, not flanges: both ends are welded on site.
+            startReference = InstallationMeasurementReference.PIPE_FACE,
+            endReference = InstallationMeasurementReference.PIPE_FACE,
             alongMm = alongMm,
-            lateralOffsetMm = if (task == InstallationTaskType.STRAIGHT_INSERT) 0.0 else lateralMm,
+            lateralOffsetMm = if (straight || lateralMm <= 0.5) 0.0 else lateralMm,
+            verticalOffsetMm = if (rises) abs(interiorRiseMm) else 0.0,
             lateralDirection = if (minorSigned < 0.0) {
                 InstallationLateralDirection.LEFT
             } else {
                 InstallationLateralDirection.RIGHT
             },
+            verticalDirection = if (interiorRiseMm < 0.0) InstallationVerticalDirection.DOWN else InstallationVerticalDirection.UP,
             endDirection = InstallationEndDirection.FORWARD,
-            targetOffsetMm = if (task == InstallationTaskType.STRAIGHT_INSERT) 0.0 else lateralMm,
+            targetOffsetMm = if (straight) 0.0 else kotlin.math.hypot(if (lateralMm <= 0.5) 0.0 else lateralMm, if (rises) interiorRiseMm else 0.0),
             overallFaceToFaceMm = alongMm,
             quantity = measurement.takeoff.quantity.toInt().coerceAtLeast(1),
         ),

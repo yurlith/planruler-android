@@ -47,114 +47,13 @@ import com.planruler.designsystem.localization.localizedUi
 import com.planruler.model.AppLanguage
 import com.planruler.model.InstallationEndDirection
 import com.planruler.model.InstallationInputMode
-import com.planruler.model.InstallationJob
-import com.planruler.model.InstallationJobInput
 import com.planruler.model.InstallationLateralDirection
 import com.planruler.model.InstallationMeasurementReference
+import com.planruler.model.InstallationOffsetPlacement
 import com.planruler.model.InstallationPipeMaterial
 import com.planruler.model.InstallationTaskType
 import com.planruler.model.InstallationVerticalDirection
 import com.planruler.pipecalculator.PIPE_INSTALLATION_SERIES
-import kotlin.math.hypot
-
-internal data class InstallerDraft(
-    val taskType: InstallationTaskType,
-    val inputMode: InstallationInputMode,
-    val nominalDiameter: Int,
-    val pressureClass: Int,
-    val material: InstallationPipeMaterial,
-    val materialName: String?,
-    val startReference: InstallationMeasurementReference,
-    val endReference: InstallationMeasurementReference,
-    val along: String,
-    val lateral: String,
-    val vertical: String,
-    val lateralDirection: InstallationLateralDirection,
-    val verticalDirection: InstallationVerticalDirection,
-    val endDirection: InstallationEndDirection,
-    val angle: String,
-    val minimumStraight: String,
-    val weldGap: String,
-    val quantity: String,
-    val sawKerf: String,
-    val stockLengthMm: Int,
-) {
-    fun toInputOrNull(): InstallationJobInput? = runCatching {
-        val alongMm = along.installerNumber().also { require(it > 0.0) }
-        val lateralMm = lateral.installerNumber().also { require(it >= 0.0) }
-        val verticalMm = vertical.installerNumber().also { require(it >= 0.0) }
-        InstallationJobInput(
-            nominalDiameter = nominalDiameter,
-            pressureClass = pressureClass,
-            material = material,
-            materialName = materialName,
-            inputMode = inputMode,
-            startReference = startReference,
-            endReference = endReference,
-            alongMm = alongMm,
-            lateralOffsetMm = lateralMm,
-            verticalOffsetMm = verticalMm,
-            lateralDirection = lateralDirection,
-            verticalDirection = verticalDirection,
-            endDirection = endDirection,
-            angleDeg = angle.installerNumber().also { require(it > 0.0 && it < 180.0) },
-            targetOffsetMm = hypot(lateralMm, verticalMm),
-            overallFaceToFaceMm = alongMm,
-            minimumStraightMm = minimumStraight.installerNumber().also { require(it >= 0.0) },
-            weldGapMm = weldGap.installerNumber().also { require(it >= 0.0) },
-            quantity = quantity.installerWholeNumber().also { require(it > 0) },
-            sawKerfMm = sawKerf.installerNumber().also { require(it >= 0.0) },
-            stockLengthMm = stockLengthMm,
-        )
-    }.getOrNull()
-
-    fun selectTask(task: InstallationTaskType): InstallerDraft = copy(
-        taskType = task,
-        nominalDiameter = if (task == InstallationTaskType.REDUCER && nominalDiameter == 15) 20 else nominalDiameter,
-        lateral = when (task) {
-            InstallationTaskType.STRAIGHT_INSERT, InstallationTaskType.REDUCER -> "0"
-            else -> lateral.takeUnless { it == "0" } ?: "500"
-        },
-        vertical = when (task) {
-            InstallationTaskType.ROLLING_OFFSET,
-            InstallationTaskType.TURN_WITH_OFFSET,
-            InstallationTaskType.OBSTACLE_BYPASS,
-            InstallationTaskType.TEE_BRANCH,
-            -> vertical.takeUnless { it == "0" } ?: "300"
-            else -> "0"
-        },
-        endDirection = when (task) {
-            InstallationTaskType.TURN_WITH_OFFSET -> InstallationEndDirection.RIGHT
-            InstallationTaskType.U_TURN -> InstallationEndDirection.BACK
-            else -> InstallationEndDirection.FORWARD
-        },
-    )
-
-    companion object {
-        fun from(job: InstallationJob): InstallerDraft = InstallerDraft(
-            taskType = job.taskType,
-            inputMode = job.input.inputMode,
-            nominalDiameter = job.input.nominalDiameter,
-            pressureClass = job.input.pressureClass,
-            material = job.input.material,
-            materialName = job.input.materialName,
-            startReference = job.input.startReference,
-            endReference = job.input.endReference,
-            along = editableInstallerNumber(job.input.alongMm),
-            lateral = editableInstallerNumber(job.input.lateralOffsetMm),
-            vertical = editableInstallerNumber(job.input.verticalOffsetMm),
-            lateralDirection = job.input.lateralDirection,
-            verticalDirection = job.input.verticalDirection,
-            endDirection = job.input.endDirection,
-            angle = editableInstallerNumber(job.input.angleDeg),
-            minimumStraight = editableInstallerNumber(job.input.minimumStraightMm),
-            weldGap = editableInstallerNumber(job.input.weldGapMm),
-            quantity = job.input.quantity.toString(),
-            sawKerf = editableInstallerNumber(job.input.sawKerfMm),
-            stockLengthMm = job.input.stockLengthMm,
-        )
-    }
-}
 
 @Composable
 internal fun InstallerInputWizard(
@@ -254,13 +153,26 @@ internal fun InstallerInputWizard(
                 ) { Text(t("Конец: ", "End: ") + draft.endReference.label(language)) }
             }
             Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.primaryContainer) {
-                Text(
-                    t("Введите расстояние: от ", "Enter the distance: from ") +
-                        draft.startReference.label(language).lowercase() + t(" до ", " to ") +
-                        draft.endReference.label(language).lowercase() + ".",
-                    modifier = Modifier.padding(12.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        t("Введите расстояние: от ", "Enter the distance: from ") +
+                            draft.startReference.label(language).lowercase() + t(" до ", " to ") +
+                            draft.endReference.label(language).lowercase() + ".",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    val siteWelds = listOf(draft.startReference, draft.endReference)
+                        .count { it != InstallationMeasurementReference.FLANGE_FACE }
+                    if (siteWelds > 0 && draft.taskType != InstallationTaskType.FLANGED_OFFSET && draft.taskType.usesAutoRoute()) {
+                        Text(
+                            t(
+                                "Без фланца конец приваривается на месте: на каждый такой стык заложен зазор %s мм.",
+                                "An end without a flange is welded on site: each such joint keeps a %s mm gap.",
+                            ).format(draft.weldGap.ifBlank { "0" }),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.testTag(PipeCalculatorTags.InstallerSiteWeldHint),
+                        )
+                    }
+                }
             }
 
             InstallerDimensionField(
@@ -269,61 +181,122 @@ internal fun InstallerInputWizard(
                 label = t("Вдоль трассы", "Along the run"),
                 tag = PipeCalculatorTags.InstallerAlong,
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // Only the fields the chosen task reads: offsets keep the end facing forward, so
+            // asking for that only invites numbers that are then ignored.
+            val flat = draft.taskType == InstallationTaskType.FLAT_OFFSET
+            val lateralShown = draft.taskType.usesLateral() && !flat
+            val verticalShown = draft.taskType.usesVertical()
+            if (flat) {
+                // One size and one of four ways: a flat offset steps aside or climbs, never both.
                 InstallerDimensionField(
-                    value = draft.lateral,
-                    onValue = { onDraft(draft.copy(lateral = it)) },
-                    label = t("В сторону", "Side offset"),
+                    value = draft.flatOffset,
+                    onValue = { onDraft(draft.withFlatOffset(it)) },
+                    label = t("Смещение этажа", "Offset distance"),
                     tag = PipeCalculatorTags.InstallerLateral,
-                    modifier = Modifier.weight(1f),
                 )
-                InstallerDimensionField(
-                    value = draft.vertical,
-                    onValue = { onDraft(draft.copy(vertical = it)) },
-                    label = t("По высоте", "Rise / drop"),
-                    tag = PipeCalculatorTags.InstallerVertical,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                InstallationLateralDirection.entries.forEach { direction ->
-                    FilterChip(
-                        selected = draft.lateralDirection == direction,
-                        onClick = { onDraft(draft.copy(lateralDirection = direction)) },
-                        label = { Text(if (direction == InstallationLateralDirection.LEFT) t("← влево", "← left") else t("вправо →", "right →")) },
-                    )
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    items(FlatOffsetDirection.entries) { direction ->
+                        FilterChip(
+                            selected = draft.flatDirection == direction,
+                            onClick = { onDraft(draft.withFlatDirection(direction)) },
+                            label = { Text(direction.label(language)) },
+                            modifier = Modifier.testTag(PipeCalculatorTags.installerFlatDirection(direction.name)),
+                        )
+                    }
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                InstallationVerticalDirection.entries.forEach { direction ->
-                    FilterChip(
-                        selected = draft.verticalDirection == direction,
-                        onClick = { onDraft(draft.copy(verticalDirection = direction)) },
-                        label = { Text(if (direction == InstallationVerticalDirection.UP) t("↑ подъём", "↑ rise") else t("↓ опуск", "↓ drop")) },
-                    )
+            if (lateralShown || verticalShown) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (lateralShown) {
+                        InstallerDimensionField(
+                            value = draft.lateral,
+                            onValue = { onDraft(draft.copy(lateral = it)) },
+                            label = t("В сторону", "Side offset"),
+                            tag = PipeCalculatorTags.InstallerLateral,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    if (verticalShown) {
+                        InstallerDimensionField(
+                            value = draft.vertical,
+                            onValue = { onDraft(draft.copy(vertical = it)) },
+                            label = t("По высоте", "Rise / drop"),
+                            tag = PipeCalculatorTags.InstallerVertical,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+            if (lateralShown) {
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    InstallationLateralDirection.entries.forEach { direction ->
+                        FilterChip(
+                            selected = draft.lateralDirection == direction,
+                            onClick = { onDraft(draft.copy(lateralDirection = direction)) },
+                            label = { Text(if (direction == InstallationLateralDirection.LEFT) t("← влево", "← left") else t("вправо →", "right →")) },
+                        )
+                    }
+                }
+            }
+            if (verticalShown) {
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    InstallationVerticalDirection.entries.forEach { direction ->
+                        FilterChip(
+                            selected = draft.verticalDirection == direction,
+                            onClick = { onDraft(draft.copy(verticalDirection = direction)) },
+                            label = { Text(if (direction == InstallationVerticalDirection.UP) t("↑ подъём", "↑ rise") else t("↓ опуск", "↓ drop")) },
+                        )
+                    }
                 }
             }
 
-            Text(t("Куда смотрит конец?", "Which way does the end face?"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(7.dp),
-                modifier = Modifier.testTag(PipeCalculatorTags.InstallerEndDirection),
-            ) {
-                items(InstallationEndDirection.entries) { direction ->
-                    FilterChip(
-                        selected = draft.endDirection == direction,
-                        onClick = { onDraft(draft.copy(endDirection = direction)) },
-                        label = { Text(direction.label(language)) },
+            if (draft.taskType.usesEndDirection()) {
+                Text(t("Куда смотрит конец?", "Which way does the end face?"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    modifier = Modifier.testTag(PipeCalculatorTags.InstallerEndDirection),
+                ) {
+                    items(InstallationEndDirection.entries) { direction ->
+                        FilterChip(
+                            selected = draft.endDirection == direction,
+                            onClick = { onDraft(draft.copy(endDirection = direction)) },
+                            label = { Text(direction.label(language)) },
+                        )
+                    }
+                }
+            }
+            if (draft.taskType.isOffset()) {
+                Text(t("Где этаж", "Where the offset sits"), style = MaterialTheme.typography.labelLarge)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    items(InstallationOffsetPlacement.entries) { placement ->
+                        FilterChip(
+                            selected = draft.offsetPlacement == placement,
+                            onClick = { onDraft(draft.copy(offsetPlacement = placement)) },
+                            label = { Text(placement.label(language)) },
+                            modifier = Modifier.testTag(PipeCalculatorTags.installerPlacement(placement.name)),
+                        )
+                    }
+                }
+                if (draft.offsetPlacement == InstallationOffsetPlacement.EXACT) {
+                    InstallerDimensionField(
+                        value = draft.offsetLead,
+                        onValue = { onDraft(draft.copy(offsetLead = it)) },
+                        label = t("Отрезок до этажа", "Cut before the offset"),
+                        tag = PipeCalculatorTags.InstallerOffsetLead,
                     )
                 }
             }
             Text(t("Угол отвода", "Elbow angle"), style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                listOf("30", "45", "60", "90").forEach { angle ->
+            // Offsets are often set out with shallow elbows; turns and returns keep the usual four.
+            val angles = if (draft.taskType.isOffset()) OFFSET_ELBOW_ANGLES else listOf(30.0, 45.0, 60.0, 90.0)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                items(angles) { angle ->
+                    val value = editableInstallerNumber(angle)
                     FilterChip(
-                        selected = draft.angle == angle,
-                        onClick = { onDraft(draft.copy(angle = angle)) },
-                        label = { Text("$angle°") },
+                        selected = draft.angle.replace(',', '.').toDoubleOrNull() == angle,
+                        onClick = { onDraft(draft.copy(angle = value)) },
+                        label = { Text("$value°") },
+                        modifier = Modifier.testTag(PipeCalculatorTags.installerAngle(value)),
                     )
                 }
             }
@@ -553,6 +526,38 @@ private fun InstallationMeasurementReference.label(language: AppLanguage): Strin
     name.lowercase().replace('_', ' '),
 )
 
+private fun FlatOffsetDirection.label(language: AppLanguage): String = localizedUi(
+    language,
+    when (this) {
+        FlatOffsetDirection.LEFT -> "← влево"
+        FlatOffsetDirection.RIGHT -> "вправо →"
+        FlatOffsetDirection.UP -> "↑ вверх"
+        FlatOffsetDirection.DOWN -> "↓ вниз"
+    },
+    when (this) {
+        FlatOffsetDirection.LEFT -> "← left"
+        FlatOffsetDirection.RIGHT -> "right →"
+        FlatOffsetDirection.UP -> "↑ up"
+        FlatOffsetDirection.DOWN -> "↓ down"
+    },
+)
+
+private fun InstallationOffsetPlacement.label(language: AppLanguage): String = localizedUi(
+    language,
+    when (this) {
+        InstallationOffsetPlacement.START -> "У начала"
+        InstallationOffsetPlacement.CENTER -> "По центру"
+        InstallationOffsetPlacement.END -> "У конца"
+        InstallationOffsetPlacement.EXACT -> "Точно, мм"
+    },
+    when (this) {
+        InstallationOffsetPlacement.START -> "Near the start"
+        InstallationOffsetPlacement.CENTER -> "Centred"
+        InstallationOffsetPlacement.END -> "Near the end"
+        InstallationOffsetPlacement.EXACT -> "Exact, mm"
+    },
+)
+
 private fun InstallationEndDirection.label(language: AppLanguage): String = localizedUi(
     language,
     when (this) {
@@ -572,14 +577,3 @@ private fun InstallationEndDirection.label(language: AppLanguage): String = loca
         InstallationEndDirection.BACK -> "↩ back"
     },
 )
-
-private fun String.installerNumber(): Double = trim().replace(',', '.').toDouble()
-
-private fun String.installerWholeNumber(): Int {
-    val value = installerNumber()
-    require(value % 1.0 == 0.0)
-    return value.toInt()
-}
-
-private fun editableInstallerNumber(value: Double): String =
-    if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()

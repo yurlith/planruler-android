@@ -1,6 +1,9 @@
 package com.planruler.feature.pipecalculator
 
 import com.planruler.fabrication3d.ChainStep3D
+import com.planruler.fabrication3d.ChainTerminal3D
+import com.planruler.fabrication3d.FabricationPartKind
+import com.planruler.fabrication3d.OffsetPlacement3D
 import com.planruler.fabrication3d.RouteRequest3D
 import com.planruler.fabrication3d.RouteTerminal3D
 import com.planruler.fabrication3d.Vec3
@@ -13,6 +16,7 @@ import com.planruler.model.InstallationJobId
 import com.planruler.model.InstallationJobInput
 import com.planruler.model.InstallationLateralDirection
 import com.planruler.model.InstallationMeasurementReference
+import com.planruler.model.InstallationOffsetPlacement
 import com.planruler.model.InstallationTaskType
 import com.planruler.model.InstallationVerticalDirection
 import com.planruler.pipecalculator.FlangedOffsetAssemblyInput
@@ -21,6 +25,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.sin
+import kotlin.math.tan
 
 class InstallerWorkflowTest {
     private fun job(
@@ -44,7 +50,8 @@ class InstallerWorkflowTest {
         )
 
         assertEquals(InstallerCalculationPath.AUTO_ROUTE, request.calculationPath)
-        assertEquals(Vec3(1_600.0, 500.0, 300.0), request.target)
+        // Right of the run is -Y: the world is right-handed and stands on Z.
+        assertEquals(Vec3(1_600.0, -500.0, 300.0), request.target)
         assertEquals(Vec3.UNIT_X, request.endDirection)
         assertEquals(45.0, request.preferredAngleDeg ?: 0.0, 0.0)
     }
@@ -64,7 +71,7 @@ class InstallerWorkflowTest {
             ),
         )
 
-        assertEquals(Vec3(2_000.0, -900.0, -400.0), request.target)
+        assertEquals(Vec3(2_000.0, 900.0, -400.0), request.target)
         assertEquals(-Vec3.UNIT_X, request.endDirection)
     }
 
@@ -92,7 +99,54 @@ class InstallerWorkflowTest {
             ),
         )
         assertEquals(-60.3, request.referenceCorrectionMm, 1e-9)
-        assertEquals(439.7, request.target.y, 1e-9)
+        assertEquals(-439.7, request.target.y, 1e-9)
+    }
+
+    @Test fun `a flat offset that climbs is solved in the vertical plane with its edge correction`() {
+        val request = installerRouteRequest(
+            job(
+                InstallationTaskType.FLAT_OFFSET,
+                InstallationJobInput(
+                    nominalDiameter = 50,
+                    alongMm = 1_600.0,
+                    lateralOffsetMm = 0.0,
+                    verticalOffsetMm = 400.0,
+                    verticalDirection = InstallationVerticalDirection.DOWN,
+                    startReference = InstallationMeasurementReference.PIPE_OUTER_EDGE,
+                    endReference = InstallationMeasurementReference.PIPE_OUTER_EDGE,
+                ),
+            ),
+        )
+        assertEquals(Vec3(1_600.0, 0.0, -400.0), request.measuredTarget)
+
+        val crossed = installerRouteRequest(
+            job(
+                InstallationTaskType.FLAT_OFFSET,
+                InstallationJobInput(
+                    nominalDiameter = 50,
+                    lateralOffsetMm = 0.0,
+                    verticalOffsetMm = 400.0,
+                    startReference = InstallationMeasurementReference.PIPE_INNER_EDGE,
+                    endReference = InstallationMeasurementReference.PIPE_OUTER_EDGE,
+                ),
+            ),
+        )
+        assertEquals(460.3, crossed.measuredTarget.z, 1e-9)
+        assertEquals(0.0, crossed.measuredTarget.y, 0.0)
+    }
+
+    @Test fun `the placement of an offset reaches the solver`() {
+        fun placed(placement: InstallationOffsetPlacement) = installerRouteRequest(
+            job(
+                InstallationTaskType.ROLLING_OFFSET,
+                InstallationJobInput(offsetPlacement = placement, offsetLeadMm = 20.0, minimumStraightMm = 50.0),
+            ),
+        ).offsetPlacement
+        assertEquals(OffsetPlacement3D.Share(0.0), placed(InstallationOffsetPlacement.START))
+        assertEquals(OffsetPlacement3D.CENTERED, placed(InstallationOffsetPlacement.CENTER))
+        assertEquals(OffsetPlacement3D.Share(1.0), placed(InstallationOffsetPlacement.END))
+        // An exact cut shorter than the shortest allowed straight is lifted to it.
+        assertEquals(OffsetPlacement3D.LeadCut(50.0), placed(InstallationOffsetPlacement.EXACT))
     }
 
     @Test fun `tee obstacle and reducer select manual fabrication templates`() {
@@ -137,20 +191,83 @@ class InstallerWorkflowTest {
             ),
             InstallationTaskType.FLANGED_OFFSET to InstallationJobInput(alongMm = 4_000.0, lateralOffsetMm = 500.0),
         )
-        scenarios.forEach { (task, input) ->
-            val request = installerRouteRequest(job(task, input))
-            val solution = engine.router.solve(
-                RouteRequest3D(
-                    profile = profile,
-                    target = RouteTerminal3D(request.target, request.endDirection),
-                    preferredElbowAngleDeg = request.preferredAngleDeg,
-                    minimumStraightMm = request.minimumStraightMm,
-                ),
-            ).getOrNull()
-            assertNotNull(task.name, solution)
-            assertTrue(task.name, solution!!.targetErrorMm < 1e-4)
+        listOf(InstallationMeasurementReference.FLANGE_FACE, InstallationMeasurementReference.PIPE_FACE).forEach { reference ->
+            scenarios.forEach { (task, input) ->
+                val request = installerRouteRequest(job(task, input.copy(startReference = reference, endReference = reference)))
+                val solution = engine.router.solve(request.toRouteRequest(profile)).getOrNull()
+                assertNotNull("${task.name} $reference", solution)
+                assertTrue(task.name, solution!!.targetErrorMm < 1e-4)
+            }
         }
     }
+
+    @Test fun `an offset between pipe ends is a flangeless spool short by one weld gap at each end`() {
+        val input = InstallationJobInput(
+            nominalDiameter = 50,
+            alongMm = 1_600.0,
+            lateralOffsetMm = 500.0,
+            weldGapMm = 2.0,
+            startReference = InstallationMeasurementReference.PIPE_FACE,
+            endReference = InstallationMeasurementReference.PIPE_FACE,
+            endDirection = InstallationEndDirection.RIGHT,
+        )
+        val request = installerRouteRequest(job(InstallationTaskType.FLAT_OFFSET, input))
+        assertEquals(ChainTerminal3D.OPEN_END, request.startTerminal)
+        assertEquals(ChainTerminal3D.OPEN_END, request.endTerminal)
+        assertEquals(Vec3.UNIT_X, request.endDirection)
+        assertEquals(Vec3(2.0, 0.0, 0.0), request.start)
+        assertEquals(Vec3(1_598.0, -500.0, 0.0), request.target)
+        assertEquals(Vec3(1_600.0, -500.0, 0.0), request.measuredTarget)
+        assertEquals(2.0, request.siteWeldGapMm, 0.0)
+
+        val profile = calculateFlangedOffsetAssembly(
+            FlangedOffsetAssemblyInput(50, 16, 500.0, 4_000.0, weldGapMm = 2.0),
+        ).toAssemblyProfile3D()
+        val solution = DefaultFabrication3DEngine().router.solve(request.toRouteRequest(profile)).getOrNull()!!
+        assertTrue(solution.assembly.parts.none { it.definition.kind == FabricationPartKind.FLANGE })
+        val takeout = profile.elbow.centerlineRadiusMm * tan(Math.toRadians(22.5))
+        assertEquals(500.0 / sin(Math.toRadians(45.0)) - 2 * takeout - 4.0, solution.pipeCuts[1].lengthMm, 1e-6)
+        // Site gap, pipe, gap, elbow, sloped leg, elbow, gap, pipe, site gap: exactly the measured 1600.
+        val straight = (1_600.0 - 2.0 - 2.0 - 500.0 - 2 * takeout - 4.0) / 2.0
+        assertEquals(straight, solution.pipeCuts[0].lengthMm, 1e-6)
+    }
+
+    @Test fun `flange to flange stays flanged whatever the references say`() {
+        val request = installerRouteRequest(
+            job(
+                InstallationTaskType.FLANGED_OFFSET,
+                InstallationJobInput(
+                    startReference = InstallationMeasurementReference.PIPE_FACE,
+                    endReference = InstallationMeasurementReference.PIPE_FACE,
+                ),
+            ),
+        )
+        assertEquals(ChainTerminal3D.FLANGE, request.startTerminal)
+        assertEquals(ChainTerminal3D.FLANGE, request.endTerminal)
+        assertEquals(Vec3.ZERO, request.start)
+        assertEquals(0.0, request.siteWeldGapMm, 0.0)
+    }
+
+    @Test fun `prepared templates keep their flanges`() {
+        val request = installerRouteRequest(
+            job(
+                InstallationTaskType.OBSTACLE_BYPASS,
+                InstallationJobInput(startReference = InstallationMeasurementReference.PIPE_FACE),
+            ),
+        )
+        assertEquals(ChainTerminal3D.FLANGE, request.startTerminal)
+    }
+
+    private fun InstallerRouteRequest.toRouteRequest(profile: com.planruler.fabrication3d.AssemblyProfile3D) = RouteRequest3D(
+        profile = profile,
+        start = RouteTerminal3D(start),
+        target = RouteTerminal3D(target, endDirection),
+        preferredElbowAngleDeg = preferredAngleDeg,
+        minimumStraightMm = minimumStraightMm,
+        startTerminal = startTerminal,
+        endTerminal = endTerminal,
+        offsetPlacement = offsetPlacement,
+    )
 
     @Test fun `prepared fitter templates replay through the real chain engine`() {
         val engine = DefaultFabrication3DEngine()

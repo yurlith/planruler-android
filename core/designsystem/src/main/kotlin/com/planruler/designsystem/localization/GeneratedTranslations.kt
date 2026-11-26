@@ -217,7 +217,7 @@ internal val generatedGermanUi: Map<String, String> = mapOf(
     "Editing" to "Bearbeiten",
     "Elbow center travel L" to "Ellbogenmittenweg L",
     "Elbow take-out, mm" to "Ellbogenentnahme, mm",
-    "Elbows" to "Ellenbogen",
+    "Elbows" to "Bögen",
     "Electrical" to "Elektrik",
     "Email" to "E-Mail",
     "Enter a positive known length." to "Geben Sie eine positive bekannte Länge ein.",
@@ -871,7 +871,7 @@ internal val generatedPolishUi: Map<String, String> = mapOf(
     "Editing" to "Edycja",
     "Elbow center travel L" to "Skok środkowy łokcia L",
     "Elbow take-out, mm" to "Wycięcie na łokieć, mm",
-    "Elbows" to "Łokcie",
+    "Elbows" to "Kolana",
     "Electrical" to "Elektryczne",
     "Email" to "E-mail",
     "Enter a positive known length." to "Podaj dodatnią znaną długość.",
@@ -2179,7 +2179,7 @@ internal val generatedItalianUi: Map<String, String> = mapOf(
     "Editing" to "Modifica",
     "Elbow center travel L" to "Corsa centrale del gomito L",
     "Elbow take-out, mm" to "Gomito estraibile, mm",
-    "Elbows" to "Gomiti",
+    "Elbows" to "Curve",
     "Electrical" to "Elettrico",
     "Email" to "E-mail",
     "Enter a positive known length." to "Inserisci una lunghezza nota positiva.",
@@ -2616,7 +2616,7 @@ internal val generatedItalianUi: Map<String, String> = mapOf(
     "Verify actual fitting take-outs, flange facing and the approved welding procedure before cutting" to "Prima del taglio verificare gli ingombri reali, la faccia della flangia e la procedura di saldatura approvata.",
 )
 
-internal val germanUi: Map<String, String> = generatedGermanUi + baseGermanUi + isometricGermanUi
-internal val polishUi: Map<String, String> = generatedPolishUi + basePolishUi + isometricPolishUi
-internal val frenchUi: Map<String, String> = generatedFrenchUi + isometricFrenchUi
-internal val italianUi: Map<String, String> = generatedItalianUi + isometricItalianUi
+internal val germanUi: Map<String, String> = generatedGermanUi + baseGermanUi + isometricGermanUi + offsetGermanUi
+internal val polishUi: Map<String, String> = generatedPolishUi + basePolishUi + isometricPolishUi + offsetPolishUi
+internal val frenchUi: Map<String, String> = generatedFrenchUi + isometricFrenchUi + offsetFrenchUi
+internal val italianUi: Map<String, String> = generatedItalianUi + isometricItalianUi + offsetItalianUi

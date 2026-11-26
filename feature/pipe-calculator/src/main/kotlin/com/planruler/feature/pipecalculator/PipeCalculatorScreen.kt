@@ -69,6 +69,21 @@ import java.util.Locale
 
 object PipeCalculatorTags {
     const val Root = "pipe_calculator_root"
+    const val OffsetPage = "pipe_offset_page"
+    const val InstallerSiteWeldHint = "installer_site_weld_hint"
+    const val InstallerCutList = "installer_cut_list"
+    const val OffsetHeight = "pipe_offset_height"
+    const val OffsetSecond = "pipe_offset_second"
+    const val OffsetAdvance = "pipe_offset_advance"
+    const val OffsetCustomAngle = "pipe_offset_custom_angle"
+    const val OffsetTakeout = "pipe_offset_takeout"
+    const val OffsetGap = "pipe_offset_gap"
+    const val OffsetResult = "pipe_offset_result"
+    const val OffsetCutLength = "pipe_offset_cut_length"
+    const val OffsetSketch = "pipe_offset_sketch"
+    fun offsetMode(mode: String) = "pipe_offset_mode_${mode.lowercase()}"
+    fun offsetAngle(angle: String) = "pipe_offset_angle_$angle"
+    fun offsetDn(dn: Int) = "pipe_offset_dn_$dn"
     const val HydraulicsList = "pipe_hydraulics_list"
     const val ExpansionList = "pipe_expansion_list"
     const val CalculateHydraulics = "pipe_calculate_hydraulics"
@@ -90,6 +105,12 @@ object PipeCalculatorTags {
     const val InstallerLateral = "pipe_installer_lateral"
     const val InstallerVertical = "pipe_installer_vertical"
     const val InstallerEndDirection = "pipe_installer_end_direction"
+    const val InstallerOffsetLead = "pipe_installer_offset_lead"
+    const val InstallerSetOut = "pipe_installer_set_out"
+    const val InstallerOffsetAdvice = "pipe_installer_offset_advice"
+    fun installerPlacement(placement: String) = "pipe_installer_placement_${placement.lowercase()}"
+    fun installerFlatDirection(direction: String) = "pipe_installer_flat_${direction.lowercase()}"
+    fun installerAngle(angle: String) = "pipe_installer_angle_$angle"
     const val CalculateOffsetAssembly = "pipe_calculate_offset_assembly"
     const val OffsetDiagram = "pipe_offset_diagram"
     const val Assembly3D = "pipe_assembly_3d"
@@ -174,7 +195,7 @@ object PipeCalculatorTags {
     const val WorkshopStockPlan = "pipe_workshop_stock_plan"
 }
 
-internal enum class CalculatorTool { HYDRAULICS, HEATING, INSTALLATION, EXPANSION, CATALOG, GAS_CH }
+internal enum class CalculatorTool { OFFSET, HYDRAULICS, HEATING, INSTALLATION, EXPANSION, CATALOG, GAS_CH }
 
 private enum class FluidMode { WATER, DOWFROST, MANUAL }
 
@@ -213,6 +234,7 @@ fun PipeCalculatorScreen(
                 }
             }
             when (active) {
+                CalculatorTool.OFFSET -> OffsetCalculatorPage(language)
                 CalculatorTool.HYDRAULICS -> HydraulicsPage(text) { sharedCircuit = it }
                 CalculatorTool.HEATING -> HeatDesignPage(language, sharedCircuit)
                 CalculatorTool.INSTALLATION -> FabricationWorkshop(
@@ -904,6 +926,7 @@ private fun format(value: Double, decimals: Int): String =
 private class CalculatorText(private val language: AppLanguage) {
     private fun t(russian: String, english: String) = localizedUi(language, russian, english)
     fun tab(tab: CalculatorTool) = when (tab) {
+        CalculatorTool.OFFSET -> uiText(language, UiTextKey.TOOL_OFFSET)
         CalculatorTool.HYDRAULICS -> t("Гидравлика", "Hydraulics")
         CalculatorTool.HEATING -> t("Теплорасчёт", "Heat design")
         CalculatorTool.INSTALLATION -> t("Монтаж", "Installation")

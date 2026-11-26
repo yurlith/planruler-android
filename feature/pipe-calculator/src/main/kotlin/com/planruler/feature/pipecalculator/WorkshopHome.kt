@@ -36,6 +36,7 @@ private data class WorkshopEntry(
 )
 
 private val workshopEntries = listOf(
+    WorkshopEntry(CalculatorTool.OFFSET, UiTextKey.TOOL_OFFSET, UiTextKey.TOOL_OFFSET_BODY),
     WorkshopEntry(CalculatorTool.INSTALLATION, UiTextKey.TOOL_INSTALLATION, UiTextKey.TOOL_INSTALLATION_BODY),
     WorkshopEntry(CalculatorTool.HYDRAULICS, UiTextKey.TOOL_HYDRAULICS, UiTextKey.TOOL_HYDRAULICS_BODY),
     WorkshopEntry(CalculatorTool.HEATING, UiTextKey.TOOL_HEATING, UiTextKey.TOOL_HEATING_BODY),
@@ -74,6 +75,7 @@ internal fun WorkshopHome(language: AppLanguage, onSelect: (CalculatorTool) -> U
 private fun workshopAccent(tool: CalculatorTool): Color {
     val accents = LocalToolAccents.current
     return when (tool) {
+        CalculatorTool.OFFSET -> MaterialTheme.colorScheme.tertiary
         CalculatorTool.INSTALLATION -> MaterialTheme.colorScheme.primary
         CalculatorTool.HYDRAULICS -> accents.hydraulics
         CalculatorTool.HEATING -> accents.heating
@@ -84,6 +86,7 @@ private fun workshopAccent(tool: CalculatorTool): Color {
 }
 
 private fun workshopIcon(tool: CalculatorTool) = when (tool) {
+    CalculatorTool.OFFSET -> PlanRulerIcons.Offset
     CalculatorTool.INSTALLATION -> PlanRulerIcons.Ruler
     CalculatorTool.HYDRAULICS -> PlanRulerIcons.Counter
     CalculatorTool.HEATING -> PlanRulerIcons.Home
@@ -99,6 +102,17 @@ private fun WorkshopDiagram(tool: CalculatorTool, accent: Color) {
         val w = size.width
         val h = size.height
         when (tool) {
+            CalculatorTool.OFFSET -> {
+                val low = Offset(w * .08f, h * .78f)
+                val elbowLow = Offset(w * .36f, h * .78f)
+                val elbowHigh = Offset(w * .6f, h * .26f)
+                val high = Offset(w * .92f, h * .26f)
+                drawLine(secondary, low, elbowLow, 14.dp.toPx(), StrokeCap.Round)
+                drawLine(accent, elbowLow, elbowHigh, 14.dp.toPx(), StrokeCap.Round)
+                drawLine(secondary, elbowHigh, high, 14.dp.toPx(), StrokeCap.Round)
+                drawLine(accent, Offset(w * .82f, h * .26f), Offset(w * .82f, h * .78f), 3.dp.toPx())
+                drawLine(accent, Offset(w * .76f, h * .78f), Offset(w * .88f, h * .78f), 3.dp.toPx())
+            }
             CalculatorTool.INSTALLATION -> {
                 val points = listOf(
                     Offset(w * .08f, h * .72f), Offset(w * .25f, h * .72f),

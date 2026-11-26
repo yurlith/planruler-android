@@ -114,15 +114,16 @@ internal fun FabricationWorkshop(
     settings: AppSettings = AppSettings(language = language),
     onSettings: (AppSettings) -> Unit = {},
 ) {
+    // The calculation used when there is nowhere to save it yet; it works exactly like a saved job.
+    val scratch = remember {
+        InstallationJob(
+            id = InstallationJobId("temporary"),
+            name = localizedUi(language, "Несохранённый расчёт", "Unsaved calculation"),
+            createdAtEpochMs = 0L,
+            modifiedAtEpochMs = 0L,
+        )
+    }
     if (projectRepository == null) {
-        val scratch = remember {
-            InstallationJob(
-                id = InstallationJobId("temporary"),
-                name = localizedUi(language, "Несохранённый расчёт", "Unsaved calculation"),
-                createdAtEpochMs = 0L,
-                modifiedAtEpochMs = 0L,
-            )
-        }
         FabricationWorkshopEditor(
             language = language,
             fabrication3d = fabrication3d,
@@ -148,13 +149,18 @@ internal fun FabricationWorkshop(
         if (jobsState.persistedRevision > 0) onProjectsChanged()
     }
 
+    // What was typed before any job existed; a new job starts from it instead of from defaults.
+    var unsaved by remember { mutableStateOf(scratch) }
     val manager: @Composable () -> Unit = {
         InstallationJobManager(
             language = language,
             state = jobsState,
             onProject = jobsViewModel::selectProject,
             onJob = jobsViewModel::selectJob,
-            onCreate = jobsViewModel::createJob,
+            onCreate = { name ->
+                val hasJob = jobsState.selectedJob?.takeIf { it.deletedAtEpochMs == null } != null
+                jobsViewModel.createJob(name, seed = unsaved.takeUnless { hasJob })
+            },
             onRename = jobsViewModel::renameJob,
             onDuplicate = jobsViewModel::duplicateJob,
             onDelete = jobsViewModel::deleteJob,
@@ -164,16 +170,33 @@ internal fun FabricationWorkshop(
 
     val projectId = jobsState.selectedProjectId
     val job = jobsState.selectedJob?.takeIf { it.deletedAtEpochMs == null }
-    if (projectId == null || job == null) {
+    if (jobsState.loading) {
         LazyColumn(
             Modifier.fillMaxSize().testTag(PipeCalculatorTags.InstallationList),
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             item { manager() }
-            if (projectId != null) {
-                item { PersistenceNotice(language, hasProjects = true) }
-            }
+        }
+    } else if (projectId == null || job == null) {
+        // No project or no job yet must not be a dead end: the fitter calculates straight away,
+        // and "New job" keeps the sizes already entered.
+        key(scratch.id.value) {
+            FabricationWorkshopEditor(
+                language = language,
+                fabrication3d = fabrication3d,
+                job = scratch,
+                managerContent = {
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        manager()
+                        if (projectId != null) PersistenceNotice(language, hasProjects = true)
+                    }
+                },
+                onAutosave = { unsaved = it },
+                onSaveNow = { unsaved = it },
+                settings = settings,
+                onSettings = onSettings,
+            )
         }
     } else {
         key(job.id.value) {
@@ -264,7 +287,7 @@ private fun FabricationWorkshopEditor(
     ) {
         item { managerContent() }
         item { InstallerInputWizard(language = language, draft = draft, onDraft = { draft = it }) }
-        item { WorkshopHero(text, calculation.getOrNull(), draft.nominalDiameter, draft.pressureClass, draft.angle) }
+        item { WorkshopHero(text, calculation.getOrNull(), draft.nominalDiameter, draft.pressureClass, draft.angle, draft.taskType) }
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(availableSections) { candidate ->
@@ -305,6 +328,7 @@ private fun FabricationWorkshopEditor(
                                 },
                                 installerRequest = installerRequest,
                                 showAdvancedControls = draft.inputMode == InstallationInputMode.ADVANCED,
+                                onInstallerAngle = { draft = draft.copy(angle = editableInstallerNumber(it)) },
                             )
                         }
                         if (draft.taskType == InstallationTaskType.FLANGED_OFFSET) {
@@ -427,8 +451,11 @@ private fun InstallationJobManager(
 
             if (state.projects.isEmpty()) {
                 Text(
-                    t("Сначала создайте проект или импортируйте план.", "Create a project or import a plan first."),
-                    color = MaterialTheme.colorScheme.error,
+                    t(
+                        "Проектов пока нет: расчёт ниже работает, но не сохраняется. Создайте проект или импортируйте план — тогда узлы будут сохраняться.",
+                        "No projects yet: the calculation below works but is not saved. Create a project or import a plan to keep jobs.",
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
                 )
             } else {
                 Text(t("Проект", "Project"), style = MaterialTheme.typography.labelLarge)
@@ -550,9 +577,9 @@ private fun PersistenceNotice(language: AppLanguage, hasProjects: Boolean) {
         Text(
             localizedUi(
                 language,
-                if (hasProjects) "Создайте первый монтажный узел — параметры и 3D-рецепт будут сохранены в проекте."
+                if (hasProjects) "Расчёт ниже пока не сохраняется. «Новый узел» сохранит его в проекте вместе с введёнными размерами."
                 else "Без проекта расчёт остаётся временным. Создайте проект, чтобы включить автосохранение.",
-                if (hasProjects) "Create the first installation job to save its inputs and 3D recipe in the project."
+                if (hasProjects) "The calculation below is not saved yet. New job keeps it in the project with the sizes entered."
                 else "Without a project this calculation is temporary. Create a project to enable autosave.",
             ),
             modifier = Modifier.padding(16.dp),
@@ -568,7 +595,11 @@ private fun WorkshopHero(
     dn: Int,
     pn: Int,
     angle: String,
+    taskType: InstallationTaskType,
 ) {
+    // Cut and weld counts come from the flange-to-flange spool; for any other task the real
+    // pieces are listed with the route, so the header keeps to what is true for every task.
+    val flanged = taskType == InstallationTaskType.FLANGED_OFFSET
     ElevatedCard(
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         shape = RoundedCornerShape(28.dp),
@@ -578,10 +609,12 @@ private fun WorkshopHero(
             Text(text.subtitle, style = MaterialTheme.typography.bodyMedium)
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item { WorkshopPill("DN $dn") }
-                item { WorkshopPill("PN $pn") }
+                if (flanged) item { WorkshopPill("PN $pn") }
                 item { WorkshopPill("$angle°") }
-                item { WorkshopPill(result?.let { "${it.cuts.size} ${text.pipeCutsShort}" } ?: text.checkInput) }
-                item { WorkshopPill(result?.let { "${it.weldCount} ${text.weldsShort}" } ?: "—") }
+                if (flanged) {
+                    item { WorkshopPill(result?.let { "${it.cuts.size} ${text.pipeCutsShort}" } ?: text.checkInput) }
+                    item { WorkshopPill(result?.let { "${it.weldCount} ${text.weldsShort}" } ?: "—") }
+                }
             }
         }
     }
@@ -1228,8 +1261,8 @@ private class WorkshopText(private val language: AppLanguage) {
     private fun t(russian: String, english: String) = localizedUi(language, russian, english)
     val title get() = t("Монтажная мастерская", "Fabrication workshop")
     val subtitle get() = t(
-        "Один узел, один экран: вводите габарит — получаете контур, три длины реза, фланцы, сварные стыки и раскрой.",
-        "One assembly, one screen: enter the envelope and get the contour, three cut lengths, flanges, welds and stock plan.",
+        "Один узел, один экран: вводите размеры по месту — получаете 3D-узел, длины реза и чертёж.",
+        "One assembly, one screen: enter the site dimensions and get the 3D assembly, cut lengths and the drawing.",
     )
     val inputGeometry get() = t("Исходная геометрия", "Input geometry")
     val diameter get() = t("Диаметр трубы", "Pipe diameter")

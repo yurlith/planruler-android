@@ -2,12 +2,15 @@ package com.planruler.feature.pipecalculator
 
 import com.planruler.fabrication3d.ChainPlan3D
 import com.planruler.fabrication3d.ChainStep3D
+import com.planruler.fabrication3d.ChainTerminal3D
+import com.planruler.fabrication3d.OffsetPlacement3D
 import com.planruler.fabrication3d.Vec3
 import com.planruler.model.InstallationEndDirection
 import com.planruler.model.InstallationJob
 import com.planruler.model.InstallationJobInput
 import com.planruler.model.InstallationLateralDirection
 import com.planruler.model.InstallationMeasurementReference
+import com.planruler.model.InstallationOffsetPlacement
 import com.planruler.model.InstallationTaskType
 import com.planruler.model.InstallationVerticalDirection
 import com.planruler.pipecalculator.PIPE_INSTALLATION_SERIES
@@ -27,7 +30,33 @@ internal data class InstallerRouteRequest(
     val minimumStraightMm: Double,
     val manualTemplate: ChainPlan3D? = null,
     val referenceCorrectionMm: Double = 0.0,
+    /** Start face; moved by the site weld gap when the run starts from an existing pipe end. */
+    val start: Vec3 = Vec3.ZERO,
+    val startTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
+    val endTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
+    /** Gap left at each site weld to an existing pipe; zero when both ends are flanges. */
+    val siteWeldGapMm: Double = 0.0,
+    /** The far point exactly as measured on site, before any weld gap is taken off. */
+    val measuredTarget: Vec3 = target,
+    /** Where a two-elbow offset sits between the ends; other routes ignore it. */
+    val offsetPlacement: OffsetPlacement3D = OffsetPlacement3D.CENTERED,
 )
+
+/** Tasks whose ends stay on one axis: the end always faces forward, whatever an older job said. */
+private val forwardTasks = setOf(
+    InstallationTaskType.STRAIGHT_INSERT,
+    InstallationTaskType.FLAT_OFFSET,
+    InstallationTaskType.ROLLING_OFFSET,
+    InstallationTaskType.FLANGED_OFFSET,
+)
+
+/**
+ * The fitter says what was touched at each end. A flange face is a flange; anything else is
+ * an existing pipe or fitting the spool is welded to on site, so that end stays open and gives
+ * up one weld gap.
+ */
+internal fun InstallationMeasurementReference.terminal(): ChainTerminal3D =
+    if (this == InstallationMeasurementReference.FLANGE_FACE) ChainTerminal3D.FLANGE else ChainTerminal3D.OPEN_END
 
 internal fun installerRouteRequest(job: InstallationJob): InstallerRouteRequest {
     val input = job.input
@@ -35,18 +64,25 @@ internal fun installerRouteRequest(job: InstallationJob): InstallerRouteRequest 
     val radius = (pipe?.outsideDiameterMm ?: 0.0) / 2.0
     val correction = radialReferenceOffset(input.endReference, radius) -
         radialReferenceOffset(input.startReference, radius)
-    val lateralMagnitude = (input.lateralOffsetMm + correction).coerceAtLeast(0.0)
+    // Edge references correct the size that was actually taped: sideways, or the rise of a
+    // flat offset that climbs instead of stepping aside.
+    val climbs = job.taskType == InstallationTaskType.FLAT_OFFSET &&
+        input.lateralOffsetMm == 0.0 && input.verticalOffsetMm > 0.0
+    val lateralMagnitude = if (climbs) 0.0 else (input.lateralOffsetMm + correction).coerceAtLeast(0.0)
+    val verticalMagnitude = if (climbs) (input.verticalOffsetMm + correction).coerceAtLeast(0.0) else input.verticalOffsetMm
+    // The world is right-handed and stands on Z: walking along +X, the right-hand side is -Y.
+    // (Written as 0 - x so that a zero size stays +0.0 and compares equal.)
     val lateral = when (input.lateralDirection) {
-        InstallationLateralDirection.LEFT -> -lateralMagnitude
-        InstallationLateralDirection.RIGHT -> lateralMagnitude
+        InstallationLateralDirection.LEFT -> lateralMagnitude
+        InstallationLateralDirection.RIGHT -> 0.0 - lateralMagnitude
     }
     val vertical = when (input.verticalDirection) {
-        InstallationVerticalDirection.UP -> input.verticalOffsetMm
-        InstallationVerticalDirection.DOWN -> -input.verticalOffsetMm
+        InstallationVerticalDirection.UP -> verticalMagnitude
+        InstallationVerticalDirection.DOWN -> 0.0 - verticalMagnitude
     }
     val taskTarget = when (job.taskType) {
         InstallationTaskType.STRAIGHT_INSERT -> Vec3(input.alongMm, 0.0, 0.0)
-        InstallationTaskType.FLAT_OFFSET -> Vec3(input.alongMm, lateral, 0.0)
+        // A flat offset steps either sideways or up/down; the draft keeps the other size at zero.
         else -> Vec3(input.alongMm, lateral, vertical)
     }
     val path = when (job.taskType) {
@@ -57,11 +93,19 @@ internal fun installerRouteRequest(job: InstallationJob): InstallerRouteRequest 
         -> InstallerCalculationPath.MANUAL_TEMPLATE
         else -> InstallerCalculationPath.AUTO_ROUTE
     }
+    val endDirection = if (job.taskType in forwardTasks) Vec3.UNIT_X else input.endDirection.vector()
+    // Prepared templates and the flange-to-flange spool are flanged by definition.
+    val referencesDecide = path == InstallerCalculationPath.AUTO_ROUTE && job.taskType != InstallationTaskType.FLANGED_OFFSET
+    val startTerminal = if (referencesDecide) input.startReference.terminal() else ChainTerminal3D.FLANGE
+    val endTerminal = if (referencesDecide) input.endReference.terminal() else ChainTerminal3D.FLANGE
+    val gap = input.weldGapMm.coerceAtLeast(0.0)
+    val start = if (startTerminal == ChainTerminal3D.OPEN_END) Vec3.UNIT_X * gap else Vec3.ZERO
+    val target = if (endTerminal == ChainTerminal3D.OPEN_END) taskTarget - endDirection * gap else taskTarget
     return InstallerRouteRequest(
         taskType = job.taskType,
         calculationPath = path,
-        target = taskTarget,
-        endDirection = input.endDirection.vector(),
+        target = target,
+        endDirection = endDirection,
         preferredAngleDeg = input.angleDeg.takeIf { job.taskType != InstallationTaskType.STRAIGHT_INSERT },
         minimumStraightMm = input.minimumStraightMm,
         manualTemplate = if (path == InstallerCalculationPath.MANUAL_TEMPLATE) {
@@ -70,6 +114,19 @@ internal fun installerRouteRequest(job: InstallationJob): InstallerRouteRequest 
             null
         },
         referenceCorrectionMm = correction,
+        start = start,
+        startTerminal = startTerminal,
+        endTerminal = endTerminal,
+        siteWeldGapMm = if (startTerminal == ChainTerminal3D.OPEN_END || endTerminal == ChainTerminal3D.OPEN_END) gap else 0.0,
+        measuredTarget = taskTarget,
+        offsetPlacement = when (input.offsetPlacement) {
+            InstallationOffsetPlacement.START -> OffsetPlacement3D.Share(0.0)
+            InstallationOffsetPlacement.CENTER -> OffsetPlacement3D.CENTERED
+            InstallationOffsetPlacement.END -> OffsetPlacement3D.Share(1.0)
+            InstallationOffsetPlacement.EXACT -> OffsetPlacement3D.LeadCut(
+                input.offsetLeadMm.coerceAtLeast(input.minimumStraightMm),
+            )
+        },
     )
 }
 
@@ -83,8 +140,8 @@ private fun radialReferenceOffset(reference: InstallationMeasurementReference, r
 private fun InstallationEndDirection.vector(): Vec3 = when (this) {
     InstallationEndDirection.FORWARD -> Vec3.UNIT_X
     InstallationEndDirection.BACK -> -Vec3.UNIT_X
-    InstallationEndDirection.LEFT -> -Vec3.UNIT_Y
-    InstallationEndDirection.RIGHT -> Vec3.UNIT_Y
+    InstallationEndDirection.LEFT -> Vec3.UNIT_Y
+    InstallationEndDirection.RIGHT -> -Vec3.UNIT_Y
     InstallationEndDirection.UP -> Vec3.UNIT_Z
     InstallationEndDirection.DOWN -> -Vec3.UNIT_Z
 }

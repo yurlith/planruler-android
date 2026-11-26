@@ -26,9 +26,14 @@ internal class SceneProjector3D(
 ) {
     private val center = mesh.bounds.center
     private val radius = mesh.bounds.radius.coerceAtLeast(1.0)
+
+    // The engine's world stands on Z: a rise is +Z, the floor grid lies in XY and the drawing's
+    // side view looks along Y. The camera's own up is Y, so the world is first stood upright;
+    // otherwise "front" showed the plan, a rise looked like depth and orbiting tumbled the run.
     private val cameraRotation = (
         Quaternion.axisAngle(Vec3.UNIT_X, pitchDeg.toDouble()) *
-            Quaternion.axisAngle(Vec3.UNIT_Y, yawDeg.toDouble())
+            Quaternion.axisAngle(Vec3.UNIT_Y, yawDeg.toDouble()) *
+            Quaternion.axisAngle(Vec3.UNIT_X, -90.0)
         ).normalized()
     private val distance = radius * 4.1 / zoom
     private val focal = min(width, height) * 1.32

@@ -12,10 +12,12 @@ import com.planruler.fabrication3d.ChainCommand3D
 import com.planruler.fabrication3d.ChainEditorState3D
 import com.planruler.fabrication3d.ChainPath3D
 import com.planruler.fabrication3d.ChainPlan3D
+import com.planruler.fabrication3d.ChainTerminal3D
 import com.planruler.fabrication3d.Fabrication3DEngine
 import com.planruler.fabrication3d.Fabrication3DError
 import com.planruler.fabrication3d.Fabrication3DResult
 import com.planruler.fabrication3d.MeshQuality3D
+import com.planruler.fabrication3d.OffsetPlacement3D
 import com.planruler.fabrication3d.ParametricAssembly3D
 import com.planruler.fabrication3d.RouteRequest3D
 import com.planruler.fabrication3d.RouteSolution3D
@@ -182,7 +184,20 @@ internal class Assembly3DViewModel(
         if (_state.value.mode == AssemblyWorkspaceMode3D.MANUAL) select(partId)
     }
 
-    fun solve(target: Vec3, direction: Vec3, minimumStraightMm: Double, preferredAngleDeg: Double?) {
+    fun solve(target: Vec3, direction: Vec3, minimumStraightMm: Double, preferredAngleDeg: Double?) =
+        solveRoute(target, direction, minimumStraightMm, preferredAngleDeg)
+
+    /** Solves an installer route, whose ends may be flanges or open pipe ends welded on site. */
+    fun solveRoute(
+        target: Vec3,
+        direction: Vec3,
+        minimumStraightMm: Double,
+        preferredAngleDeg: Double?,
+        start: Vec3 = Vec3.ZERO,
+        startTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
+        endTerminal: ChainTerminal3D = ChainTerminal3D.FLANGE,
+        offsetPlacement: OffsetPlacement3D = OffsetPlacement3D.CENTERED,
+    ) {
         // Never leave an older route visible while a new set of site dimensions is being checked.
         _state.update { it.copy(busy = true, solution = null, solveTarget = null, error = null) }
         launchWork {
@@ -193,9 +208,13 @@ internal class Assembly3DViewModel(
             val outcome = engine.router.solve(
                 RouteRequest3D(
                     profile = profile,
+                    start = RouteTerminal3D(start),
                     target = RouteTerminal3D(target, direction),
                     preferredElbowAngleDeg = preferredAngleDeg,
                     minimumStraightMm = minimumStraightMm,
+                    startTerminal = startTerminal,
+                    endTerminal = endTerminal,
+                    offsetPlacement = offsetPlacement,
                 ),
             )
             outcome.fold(
