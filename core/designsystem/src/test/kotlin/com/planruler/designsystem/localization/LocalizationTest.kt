@@ -121,6 +121,29 @@ class LocalizationTest {
         assertEquals("Collettore", localizedUi(AppLanguage.ITALIAN, "Коллектор", "Manifold"))
     }
 
+    @Test
+    fun `offset copy is complete in every language and never overrides older keys`() {
+        val keys = offsetGermanUi.keys
+        assertTrue(keys.size >= 30)
+        assertEquals(keys, offsetPolishUi.keys)
+        assertEquals(keys, offsetFrenchUi.keys)
+        assertEquals(keys, offsetItalianUi.keys)
+        val placeholder = Regex("%s")
+        listOf(offsetGermanUi, offsetPolishUi, offsetFrenchUi, offsetItalianUi).forEach { map ->
+            assertFalse(map.values.any(String::isBlank))
+            map.forEach { (english, translated) ->
+                assertEquals(english, placeholder.findAll(english).count(), placeholder.findAll(translated).count())
+            }
+        }
+        val older = generatedEnglishKeySet() + baseGermanUi.keys + basePolishUi.keys + isometricGermanUi.keys
+        assertEquals(emptySet<String>(), keys.intersect(older))
+        assertEquals("Etage", localizedUi(AppLanguage.GERMAN, "Этаж", "Offset"))
+        assertEquals("Odsadzka", localizedUi(AppLanguage.POLISH, "Этаж", "Offset"))
+        assertEquals("Baïonnette", localizedUi(AppLanguage.FRENCH, "Этаж", "Offset"))
+        assertEquals("Sfalsamento", localizedUi(AppLanguage.ITALIAN, "Этаж", "Offset"))
+        assertEquals("Bögen", localizedUi(AppLanguage.GERMAN, "Отводы", "Elbows"))
+    }
+
     private fun generatedEnglishKeySet(): Set<String> =
         generatedGermanUi.keys + generatedPolishUi.keys + generatedFrenchUi.keys + generatedItalianUi.keys
 }

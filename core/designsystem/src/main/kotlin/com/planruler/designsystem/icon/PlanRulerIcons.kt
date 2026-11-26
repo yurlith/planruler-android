@@ -56,6 +56,12 @@ object PlanRulerIcons {
         moveTo(12f, 13f); lineTo(12f, 5f)
         moveTo(9f, 5f); lineTo(15f, 5f)
     }
+    /** A pipe offset ("Etage"): two parallel runs joined by a sloped leg, with the offset arrow. */
+    val Offset = stroked("Offset") {
+        moveTo(3f, 18f); lineTo(9f, 18f); lineTo(15f, 9f); lineTo(21f, 9f)
+        moveTo(19f, 12.5f); lineTo(19f, 18f)
+        moveTo(17.5f, 16.5f); lineTo(19f, 18f); lineTo(20.5f, 16.5f)
+    }
     val Forward = stroked("Forward") { moveTo(9f, 4.5f); lineTo(16f, 12f); lineTo(9f, 19.5f) }
 
     val Home = stroked("Home") {
