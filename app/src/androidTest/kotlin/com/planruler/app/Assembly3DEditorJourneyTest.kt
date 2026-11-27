@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
@@ -30,6 +31,8 @@ import com.planruler.model.InstallationInputMode
 import com.planruler.model.InstallationJob
 import com.planruler.model.InstallationJobId
 import com.planruler.model.InstallationJobInput
+import com.planruler.model.InstallationOffsetPlacement
+import com.planruler.project.api.ProjectResult
 import com.planruler.model.PlanProject
 import com.planruler.model.ProjectId
 import com.planruler.project.local.FileProjectRepository
@@ -40,6 +43,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.Assert.assertTrue
 import java.util.regex.Pattern
+import java.util.UUID
 
 private const val ENGINE_TIMEOUT_MS = 10_000L
 
@@ -57,6 +61,7 @@ class Assembly3DEditorJourneyTest {
     val compose = createAndroidComposeRule<MainActivity>()
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val device get() = UiDevice.getInstance(instrumentation)
+    private val fixtureId = UUID.randomUUID().toString()
 
     @Before
     fun resetToEnglishProjectsScreen() {
@@ -67,14 +72,18 @@ class Assembly3DEditorJourneyTest {
             .clear()
             .putString("language", "ENGLISH")
             .commit()
+        // Dispose the preceding editor before replacing files; its final save must not
+        // overwrite the fixture while the next scenario is opening it.
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
         context.filesDir.resolve("projects").apply {
             deleteRecursively()
             mkdirs()
         }
         // The production workshop is project-owned. Seed one real persisted job so these
         // editor journeys test the same repository path as an installer returning to work.
-        val projectId = ProjectId("instrumentation-project")
-        val jobId = InstallationJobId("instrumentation-job")
+        val projectId = ProjectId("instrumentation-project-$fixtureId")
+        val jobId = InstallationJobId("instrumentation-job-$fixtureId")
         val now = System.currentTimeMillis()
         runBlocking {
             FileProjectRepository(context.filesDir.resolve("projects")).save(
@@ -252,6 +261,42 @@ class Assembly3DEditorJourneyTest {
             .onFirst()
             .performSemanticsAction(SemanticsActions.OnClick)
         compose.waitForIdle()
+    }
+
+    @Test
+    fun flangedPlacementAgreesWithCutListAndIsSaved() {
+        openInstallationWorkshop()
+        val list = compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
+        list.performScrollToNode(hasTestTag(PipeCalculatorTags.InstallerWizard))
+        tap(PipeCalculatorTags.InstallerBasicMode)
+        tap(PipeCalculatorTags.installerPlacement("START"))
+        list.performScrollToNode(hasTestTag(PipeCalculatorTags.Assembly3D))
+        compose.waitUntil(ENGINE_TIMEOUT_MS) {
+            compose.onAllNodes(hasText("50.0 mm") and hasAnyAncestor(hasTestTag(PipeCalculatorTags.InstallerCutList)))
+                .fetchSemanticsNodes().isNotEmpty()
+        }
+        list.performScrollToNode(hasTestTag("installation-sections"))
+        compose.onNodeWithTag("installation-sections").performScrollToNode(hasText("Cut list"))
+        tapText("Cut list")
+        list.performScrollToNode(hasTestTag(PipeCalculatorTags.OffsetAssemblyResults))
+        compose.onNode(hasText("50.0 mm") and hasAnyAncestor(hasTestTag(PipeCalculatorTags.OffsetAssemblyResults)))
+            .fetchSemanticsNode()
+        val context = instrumentation.targetContext
+        val repository = FileProjectRepository(context.filesDir.resolve("projects"))
+        compose.waitUntil(ENGINE_TIMEOUT_MS) {
+            val project = runBlocking {
+                (repository.load(ProjectId("instrumentation-project-$fixtureId")) as ProjectResult.Ok).value
+            }
+            project.installationJobs.single().input.offsetPlacement == InstallationOffsetPlacement.START
+        }
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
+            .performScrollToNode(hasTestTag(PipeCalculatorTags.OffsetAssemblyResults))
+        compose.onNode(hasText("50.0 mm") and hasAnyAncestor(hasTestTag(PipeCalculatorTags.OffsetAssemblyResults)))
+            .fetchSemanticsNode()
+        device.waitForIdle()
+        device.takeScreenshot(java.io.File(context.getExternalFilesDir(null), "flanged-cut-list.png"))
     }
 
     @Test
@@ -678,7 +723,7 @@ class Assembly3DEditorJourneyTest {
 
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val stored = runBlocking {
-            (FileProjectRepository(context.filesDir.resolve("projects")).load(ProjectId("instrumentation-project"))
+            (FileProjectRepository(context.filesDir.resolve("projects")).load(ProjectId("instrumentation-project-$fixtureId"))
                 as com.planruler.project.api.ProjectResult.Ok).value
         }.installationJobs.single()
         assertTrue(stored.checkedBy == "Site foreman" && stored.checkedAtEpochMs != null)

@@ -57,6 +57,13 @@ class PipeCalculatorJourneyTest {
         }
     }
 
+    private fun selectInstallationSection(label: String) {
+        compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
+            .performScrollToNode(hasTestTag("installation-sections"))
+        compose.onNodeWithTag("installation-sections").performScrollToNode(hasText(label))
+        compose.onNodeWithText(label).performClick()
+    }
+
     @Before
     fun resetToEnglishProjectsScreen() {
         bringPlanRulerToForeground()
@@ -108,13 +115,14 @@ class PipeCalculatorJourneyTest {
         compose.onNodeWithTag(PlanRulerTestTags.WorkshopRoot)
             .performScrollToNode(hasTestTag(PlanRulerTestTags.workshopTool("INSTALLATION")))
         compose.onNodeWithTag(PlanRulerTestTags.workshopTool("INSTALLATION")).performClick()
-        compose.onNodeWithText("Parameters").performClick()
+        compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
+            .performScrollToNode(hasText("Advanced"))
+        compose.onNodeWithText("Advanced").performSemanticsAction(SemanticsActions.OnClick)
+        selectInstallationSection("Parameters")
         compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
             .performScrollToNode(hasTestTag(PipeCalculatorTags.CalculateOffsetAssembly))
         compose.onNodeWithTag(PipeCalculatorTags.CalculateOffsetAssembly).performClick()
-        compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
-            .performScrollToNode(hasText("3D model"))
-        compose.onNodeWithText("3D model").performClick()
+        selectInstallationSection("3D model")
         compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
             .performScrollToNode(hasTestTag(PipeCalculatorTags.Assembly3D))
         compose.onNodeWithTag(PipeCalculatorTags.Assembly3D).assertIsDisplayed()
@@ -155,23 +163,14 @@ class PipeCalculatorJourneyTest {
             .performSemanticsAction(SemanticsActions.OnClick)
         compose.waitUntil(10_000L) { compose.onAllNodesWithTag(PipeCalculatorTags.Assembly3DSolverResult).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Route closed — fabrication cuts").fetchSemanticsNode()
+        selectInstallationSection("Drawing")
         compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
-            .performScrollToNode(hasText("Drawing"))
-        compose.onNodeWithText("Drawing").performClick()
-        compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
-            .performScrollToNode(hasTestTag(PipeCalculatorTags.OffsetDiagram))
-        compose.onNodeWithTag(PipeCalculatorTags.OffsetDiagram).assertIsDisplayed()
-        compose.onNodeWithText("CUT PIPE: C = 640.1 mm").fetchSemanticsNode()
-        compose.onNodeWithText(
-            "1 — elbow 1 inlet; F1 — its weld face; 2–3 — pipe C to cut; F2 — elbow 2 weld face; 4 — elbow 2 outlet.",
-        ).fetchSemanticsNode()
-        compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
-            .performScrollToNode(hasTestTag(PipeCalculatorTags.WorkshopFlange))
-        compose.onNodeWithTag(PipeCalculatorTags.WorkshopFlange).assertIsDisplayed()
-        compose.onNodeWithText("Flange and bolt pattern").assertIsDisplayed()
-        compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
-            .performScrollToNode(hasText("Cut list"))
-        compose.onNodeWithText("Cut list").performClick()
+            .performScrollToNode(hasTestTag(PipeCalculatorTags.AssemblyDrawing))
+        compose.waitUntil(10_000L) {
+            compose.onAllNodesWithTag(PipeCalculatorTags.AssemblyDrawingCanvas).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag(PipeCalculatorTags.AssemblyDrawingCanvas).fetchSemanticsNode()
+        selectInstallationSection("Cut list")
         compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
             .performScrollToNode(hasTestTag(PipeCalculatorTags.OffsetAssemblyResults))
         compose.onNodeWithTag(PipeCalculatorTags.OffsetAssemblyResults).assertIsDisplayed()
@@ -191,10 +190,14 @@ class PipeCalculatorJourneyTest {
         compose.onNodeWithTag(PipeCalculatorTags.CatalogSections)
             .performScrollToNode(hasText("Elbows"))
         compose.onNodeWithText("Elbows").performClick()
+        compose.onNodeWithTag(PipeCalculatorTags.CatalogList)
+            .performScrollToNode(hasTestTag(PipeCalculatorTags.ElbowAnimation))
         compose.onNodeWithTag(PipeCalculatorTags.ElbowAnimation).assertIsDisplayed()
         compose.onNodeWithTag(PipeCalculatorTags.CatalogSections)
             .performScrollToNode(hasText("Flanges"))
         compose.onNodeWithText("Flanges").performClick()
+        compose.onNodeWithTag(PipeCalculatorTags.CatalogList)
+            .performScrollToNode(hasTestTag(PipeCalculatorTags.FlangeAnimation))
         compose.onNodeWithTag(PipeCalculatorTags.FlangeAnimation).assertIsDisplayed()
 
         compose.onNodeWithContentDescription("Back to workshop").performClick()

@@ -1,6 +1,7 @@
 package com.planruler.pipecalculator
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.math.sin
@@ -125,6 +126,54 @@ class FabricationAssemblyTest {
             result.totalNetPipeLengthMm + result.totalKerfLossMm + result.totalOffcutMm,
             1e-6,
         )
+    }
+
+    /**
+     * A placed offset only moves straight pipe from one tail to the other: the sloped piece,
+     * the closure and the total pipe stay exactly those of the centred spool.
+     */
+    @Test
+    fun `an exact inlet cut places the offset and the outlet tail takes the rest`() {
+        val centred = calculateFlangedOffsetAssembly(FlangedOffsetAssemblyInput(50, 16, 500.0, 1_600.0))
+        val placed = calculateFlangedOffsetAssembly(
+            FlangedOffsetAssemblyInput(50, 16, 500.0, 1_600.0, inletPipeCutMm = 100.0, minimumPipeCutMm = 50.0),
+        )
+
+        assertEquals(100.0, placed.inletPipeCutMm, 0.0)
+        // 939.04 mm of straight in all, as the centred spool's two 469.52 mm tails.
+        assertEquals(939.040 - 100.0, placed.outletPipeCutMm, 0.001)
+        assertEquals(centred.diagonalPipeCutMm, placed.diagonalPipeCutMm, 0.0)
+        assertEquals(centred.totalNetPipeLengthMm, placed.totalNetPipeLengthMm, 1e-9)
+        assertEquals(listOf(100.0, placed.diagonalPipeCutMm, placed.outletPipeCutMm), placed.cuts.map { it.lengthMm })
+        assertEquals(1_600.0, placed.endFace.x, 1e-6)
+        assertEquals(500.0, placed.endFace.y, 1e-6)
+        // The first bend centre moves with P1: flange, gap, P1, gap, take-out.
+        val firstCorner = requireNotNull(placed.elements.single { it.code == "E1" }.control)
+        assertEquals(45.0 + 2.0 + 100.0 + 2.0 + placed.elbowTakeoutMm, firstCorner.x, 1e-9)
+    }
+
+    @Test
+    fun `every cut shorter than the minimum is refused, the sloped one too`() {
+        fun refused(input: FlangedOffsetAssemblyInput) =
+            runCatching { calculateFlangedOffsetAssembly(input) }.exceptionOrNull() is CalculationException
+
+        val spool = FlangedOffsetAssemblyInput(50, 16, 500.0, 1_600.0, minimumPipeCutMm = 50.0)
+        assertTrue(refused(spool.copy(inletPipeCutMm = 49.0)))
+        // 939.04 mm of straight in all: a P1 of 900 leaves 39.04 mm for P3.
+        assertTrue(refused(spool.copy(inletPipeCutMm = 900.0)))
+        assertFalse(refused(spool.copy(inletPipeCutMm = 889.0)))
+        // H = 80 leaves a sloped cut of 46.2 mm: enough to weld, not enough for a 50 mm minimum.
+        assertTrue(refused(spool.copy(targetOffsetMm = 80.0)))
+        assertFalse(refused(spool.copy(targetOffsetMm = 80.0, minimumPipeCutMm = 0.0)))
+        assertTrue(refused(spool.copy(inletPipeCutMm = Double.NaN)))
+    }
+
+    @Test
+    fun `the tail share is checked only while it decides the split`() {
+        val atStart = FlangedOffsetAssemblyInput(50, 16, 500.0, 1_600.0, inletTailShare = 0.0)
+        assertTrue(runCatching { calculateFlangedOffsetAssembly(atStart) }.exceptionOrNull() is CalculationException)
+        val exact = calculateFlangedOffsetAssembly(atStart.copy(inletPipeCutMm = 60.0))
+        assertEquals(60.0, exact.inletPipeCutMm, 0.0)
     }
 
     @Test(expected = CalculationException::class)

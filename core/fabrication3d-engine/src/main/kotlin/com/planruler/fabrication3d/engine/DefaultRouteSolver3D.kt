@@ -297,7 +297,7 @@ internal class DefaultRouteSolver3D(
                 "facing terminals share one axis, so the return run would sit inside the supply",
             )
         val start = startOf(request, startDirection)
-        val minimum = maxOf(request.minimumStraightMm, request.profile.rules.minPipeLengthMm)
+        val minimum = minimumCut(request)
         val diagnostics = listOf(
             RouteDiagnostic3D.ANTI_PARALLEL_TERMINALS,
             RouteDiagnostic3D.TWO_ELBOW_TURN,
@@ -368,7 +368,7 @@ internal class DefaultRouteSolver3D(
         bendDirections: List<Vec3> = emptyList(),
     ): Fabrication3DResult<RouteSolution3D> {
         val profile = request.profile
-        val minimum = maxOf(request.minimumStraightMm, profile.rules.minPipeLengthMm)
+        val minimum = minimumCut(request)
         var lengths = baseLengths.copyOf()
         var rolls = DoubleArray(bendDirections.size)
 
@@ -496,13 +496,7 @@ internal class DefaultRouteSolver3D(
 
     /** The cut before a two-elbow offset, out of [totalMm] of straight shared by both cuts. */
     private fun leadStraight(request: RouteRequest3D, totalMm: Double): Double =
-        when (val placement = request.offsetPlacement) {
-            is OffsetPlacement3D.Share -> {
-                val minimum = minimumCut(request)
-                minimum + placement.leadShare * (totalMm - 2.0 * minimum)
-            }
-            is OffsetPlacement3D.LeadCut -> placement.lengthMm
-        }
+        request.offsetPlacement.leadCutMm(totalMm, minimumCut(request))
 
     /** A first guess whose cuts are all real pipes, so the first replay cannot fail. */
     private fun initialOffsetStraight(request: RouteRequest3D): Double =
@@ -512,7 +506,7 @@ internal class DefaultRouteSolver3D(
         }
 
     private fun minimumCut(request: RouteRequest3D): Double =
-        maxOf(request.minimumStraightMm, request.profile.rules.minPipeLengthMm)
+        request.profile.rules.minimumCutMm(request.minimumStraightMm)
 
     private fun shortestCut(steps: List<ChainStep3D>): Double = steps
         .filterIsInstance<ChainStep3D.Pipe>()

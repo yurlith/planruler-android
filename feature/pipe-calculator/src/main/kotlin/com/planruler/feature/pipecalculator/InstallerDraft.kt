@@ -156,7 +156,7 @@ internal data class InstallerDraft(
      */
     private fun referenceFor(task: InstallationTaskType, current: InstallationMeasurementReference) = when {
         task == InstallationTaskType.FLANGED_OFFSET -> InstallationMeasurementReference.FLANGE_FACE
-        task in offsetTasks &&
+        task in siteWeldedOffsetTasks &&
             startReference == InstallationMeasurementReference.FLANGE_FACE &&
             endReference == InstallationMeasurementReference.FLANGE_FACE -> InstallationMeasurementReference.PIPE_FACE
         else -> current
@@ -195,7 +195,11 @@ internal data class InstallerDraft(
 /** The four ways a flat offset can step: sideways in plan, or up and down in elevation. */
 internal enum class FlatOffsetDirection { LEFT, RIGHT, UP, DOWN }
 
-private val offsetTasks = setOf(InstallationTaskType.FLAT_OFFSET, InstallationTaskType.ROLLING_OFFSET)
+/** Offsets that are usually welded in between existing pipe ends on site. */
+private val siteWeldedOffsetTasks = setOf(InstallationTaskType.FLAT_OFFSET, InstallationTaskType.ROLLING_OFFSET)
+
+/** The same two-elbow offset as a prefabricated spool with a flange at each end. */
+private val offsetTasks = siteWeldedOffsetTasks + InstallationTaskType.FLANGED_OFFSET
 
 internal fun InstallationTaskType.usesAutoRoute() = this !in setOf(
     InstallationTaskType.OBSTACLE_BYPASS,

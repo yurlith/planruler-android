@@ -2616,7 +2616,9 @@ internal val generatedItalianUi: Map<String, String> = mapOf(
     "Verify actual fitting take-outs, flange facing and the approved welding procedure before cutting" to "Prima del taglio verificare gli ingombri reali, la faccia della flangia e la procedura di saldatura approvata.",
 )
 
-internal val germanUi: Map<String, String> = generatedGermanUi + baseGermanUi + isometricGermanUi + offsetGermanUi
-internal val polishUi: Map<String, String> = generatedPolishUi + basePolishUi + isometricPolishUi + offsetPolishUi
-internal val frenchUi: Map<String, String> = generatedFrenchUi + isometricFrenchUi + offsetFrenchUi
-internal val italianUi: Map<String, String> = generatedItalianUi + isometricItalianUi + offsetItalianUi
+internal val germanUi: Map<String, String> =
+    generatedGermanUi + baseGermanUi + isometricGermanUi + offsetGermanUi + workshopGermanUi
+internal val polishUi: Map<String, String> =
+    generatedPolishUi + basePolishUi + isometricPolishUi + offsetPolishUi + workshopPolishUi
+internal val frenchUi: Map<String, String> = generatedFrenchUi + isometricFrenchUi + offsetFrenchUi + workshopFrenchUi
+internal val italianUi: Map<String, String> = generatedItalianUi + isometricItalianUi + offsetItalianUi + workshopItalianUi

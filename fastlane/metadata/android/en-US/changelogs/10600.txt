@@ -1,0 +1,1 @@
+Measure photos with a draggable scale reference and magnifier. Search pipe sizes and count bends and risers. Draw and edit isometrics; export PDF, SVG and DXF. Calculate plain and rolling offsets, flange-to-flange cuts and set-out positions. Cut lists now agree with 3D placement. Restore saved installation jobs. Improved dimensions and workshop translations.

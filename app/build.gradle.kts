@@ -35,8 +35,8 @@ android {
         applicationId = "com.planruler.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10501
-        versionName = "1.5.1"
+        versionCode = 10600
+        versionName = "1.6.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     signingConfigs {
@@ -55,8 +55,8 @@ android {
         }
         create("preview") {
             initWith(getByName("debug"))
-            applicationIdSuffix = ".preview"
-            versionNameSuffix = "-isometric-preview"
+            applicationIdSuffix = ".test"
+            versionNameSuffix = "-test"
             matchingFallbacks += listOf("debug")
         }
         release {

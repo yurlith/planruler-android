@@ -244,7 +244,7 @@ private fun FabricationWorkshopEditor(
     val calculation = remember(input, draft.taskType, refresh) {
         runCatching {
             val current = requireNotNull(input) { "Invalid number" }
-            calculateFlangedOffsetAssembly(current.toProfileCalculationInput(draft.taskType))
+            workshopAssembly(job.copy(taskType = draft.taskType, input = current))
         }
     }
     val effectiveChainRecipe = chainRecipe.takeIf { chainRecipeTask == draft.taskType }.orEmpty()
@@ -289,7 +289,10 @@ private fun FabricationWorkshopEditor(
         item { InstallerInputWizard(language = language, draft = draft, onDraft = { draft = it }) }
         item { WorkshopHero(text, calculation.getOrNull(), draft.nominalDiameter, draft.pressureClass, draft.angle, draft.taskType) }
         item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            LazyRow(
+                modifier = Modifier.testTag("installation-sections"),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 items(availableSections) { candidate ->
                     FilterChip(
                         selected = section == candidate,
@@ -390,22 +393,27 @@ private fun FabricationWorkshopEditor(
                     }
                 }
             },
-            onFailure = { failure -> item { WorkshopError(text.invalidInput(failure.message)) } },
+            onFailure = { failure ->
+                item {
+                    // An offset that does not fit gets the advice on how to make it fit, the same
+                    // as in the 3D card, instead of the calculator's bare refusal.
+                    val advice = remember(input, draft.taskType) {
+                        input?.let { offsetFitAdvice(job.copy(taskType = draft.taskType, input = it)) }
+                    }
+                    if (advice != null) {
+                        OffsetAdviceCard(
+                            advice = advice,
+                            language = language,
+                            onAngle = { draft = draft.copy(angle = editableInstallerNumber(it)) },
+                        )
+                    } else {
+                        WorkshopError(text.invalidInput(failure.message))
+                    }
+                }
+            },
         )
     }
 }
-
-private fun InstallationJobInput.toProfileCalculationInput(taskType: InstallationTaskType) = FlangedOffsetAssemblyInput(
-    dn = nominalDiameter,
-    pn = pressureClass,
-    targetOffsetMm = if (taskType == InstallationTaskType.FLANGED_OFFSET) targetOffsetMm else max(500.0, targetOffsetMm),
-    overallFaceToFaceMm = if (taskType == InstallationTaskType.FLANGED_OFFSET) overallFaceToFaceMm else max(4_000.0, overallFaceToFaceMm),
-    angleDeg = angleDeg,
-    weldGapMm = weldGapMm,
-    quantity = quantity,
-    stockLengthMm = stockLengthMm.toDouble(),
-    sawKerfMm = sawKerfMm,
-)
 
 @Composable
 private fun InstallationJobManager(

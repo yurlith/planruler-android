@@ -85,6 +85,9 @@ class RouteSolverTest {
             assertEquals(centered[1], moved[1], 1e-6)
             assertEquals(centered.sum(), moved.sum(), 1e-6)
         }
+        // Any share is split by the placement's own rule, the one the workshop's spool uses too.
+        val quarter = cuts(OffsetPlacement3D.Share(0.25))
+        assertEquals(OffsetPlacement3D.Share(0.25).leadCutMm(quarter[0] + quarter[2], 80.0), quarter[0], 1e-6)
     }
 
     @Test

@@ -19,6 +19,7 @@ import com.planruler.model.InstallationMeasurementReference
 import com.planruler.model.InstallationOffsetPlacement
 import com.planruler.model.InstallationTaskType
 import com.planruler.model.InstallationVerticalDirection
+import com.planruler.pipecalculator.CalculationException
 import com.planruler.pipecalculator.FlangedOffsetAssemblyInput
 import com.planruler.pipecalculator.calculateFlangedOffsetAssembly
 import org.junit.Assert.assertEquals
@@ -29,6 +30,22 @@ import kotlin.math.sin
 import kotlin.math.tan
 
 class InstallerWorkflowTest {
+    @Test fun `large diameter right angle routes can always borrow their catalog profile`() {
+        listOf(200, 250, 300).forEach { dn ->
+            OFFSET_ELBOW_ANGLES.forEach { angle ->
+                val input = InstallationJobInput(nominalDiameter = dn, angleDeg = angle,
+                    alongMm = 4_000.0, lateralOffsetMm = 1_500.0)
+                val result = workshopAssembly(job(InstallationTaskType.FLAT_OFFSET, input))
+                assertEquals(dn, result.pipe.dn)
+                val route = DefaultFabrication3DEngine().router.solve(
+                    installerRouteRequest(job(InstallationTaskType.FLAT_OFFSET, input))
+                        .toRouteRequest(result.toAssemblyProfile3D()),
+                )
+                if (angle == 90.0) assertNotNull("DN $dn", route.getOrNull())
+            }
+        }
+    }
+
     private fun job(
         task: InstallationTaskType,
         input: InstallationJobInput = InstallationJobInput(),
@@ -269,6 +286,202 @@ class InstallerWorkflowTest {
         offsetPlacement = offsetPlacement,
     )
 
+    /**
+     * The hero, cut list, stock plan and passport come from the 2D spool, the route card and the
+     * set-out from the 3D solver. A fitter reads both, so they must name one set of cuts.
+     */
+    @Test fun `flange to flange cuts agree with the 3D route for every placement and angle`() {
+        val engine = DefaultFabrication3DEngine()
+        val shapes = listOf(
+            InstallationJobInput(nominalDiameter = 80, alongMm = 3_000.0, lateralOffsetMm = 500.0),
+            // Rolling, to the left and down: still a 500 mm offset between the axes.
+            InstallationJobInput(
+                nominalDiameter = 80,
+                alongMm = 3_000.0,
+                lateralOffsetMm = 400.0,
+                verticalOffsetMm = 300.0,
+                lateralDirection = InstallationLateralDirection.LEFT,
+                verticalDirection = InstallationVerticalDirection.DOWN,
+            ),
+        )
+        shapes.forEach { shape ->
+            OFFSET_ELBOW_ANGLES.forEach { angle ->
+                InstallationOffsetPlacement.entries.forEach { placement ->
+                    val label = "rise ${shape.verticalOffsetMm}, $angle°, $placement"
+                    val job = job(
+                        InstallationTaskType.FLANGED_OFFSET,
+                        shape.copy(angleDeg = angle, offsetPlacement = placement, offsetLeadMm = 420.0),
+                    )
+                    val spool = workshopAssembly(job)
+                    val request = installerRouteRequest(job)
+                    val profile = spool.toAssemblyProfile3D()
+                    val route = engine.router.solve(request.toRouteRequest(profile)).getOrNull()
+                    assertNotNull(label, route)
+                    val routed = route!!.pipeCuts.map { it.lengthMm }
+                    val listed = spool.cuts.map { it.lengthMm }
+                    assertEquals(label, 3, routed.size)
+                    listed.zip(routed).forEach { (cut, solved) -> assertEquals(label, solved, cut, AGREEMENT_MM) }
+                    assertEquals(label, route.totalPipeCutMm, spool.totalNetPipeLengthMm, AGREEMENT_MM)
+                    spool.stockBars.flatMap { it.cutsMm }.sorted().zip(routed.sorted()).forEach { (bar, solved) ->
+                        assertEquals(label, solved, bar, AGREEMENT_MM)
+                    }
+                    assertEquals(label, 3, spool.cuts.size)
+                    assertEquals(label, 6, spool.weldCount)
+
+                    when (placement) {
+                        InstallationOffsetPlacement.START -> assertEquals(label, 50.0, listed[0], 1e-9)
+                        InstallationOffsetPlacement.CENTER -> assertEquals(label, listed[2], listed[0], 1e-9)
+                        InstallationOffsetPlacement.END -> assertEquals(label, 50.0, listed[2], 1e-9)
+                        InstallationOffsetPlacement.EXACT -> assertEquals(label, 420.0, listed[0], 1e-9)
+                    }
+
+                    // The passport and the set-out panel describe the same bends.
+                    val setOut = requireNotNull(offsetSetOut(request, profile, angle)) { label }
+                    assertEquals(label, setOut.travelMm, spool.diagonalCenterTravelMm, AGREEMENT_MM)
+                    assertEquals(label, setOut.advanceMm, spool.horizontalCenterAdvanceMm, AGREEMENT_MM)
+                    assertEquals(label, setOut.takeoutMm, spool.elbowTakeoutMm, AGREEMENT_MM)
+                    val firstBend = requireNotNull(spool.elements.single { it.code == "E1" }.control).x
+                    val secondBend = requireNotNull(spool.elements.single { it.code == "E2" }.control).x
+                    assertEquals(label, firstBend, setOut.firstBendMm(routed[0]), AGREEMENT_MM)
+                    assertEquals(label, secondBend, setOut.secondBendMm(routed[0]), AGREEMENT_MM)
+                }
+            }
+        }
+    }
+
+    /** Centred is the default, so every flange-to-flange job that laid out before keeps its numbers. */
+    @Test fun `a centred flange to flange spool keeps the numbers it had before placements`() {
+        val default = workshopAssembly(job(InstallationTaskType.FLANGED_OFFSET))
+        assertEquals(469.520, default.inletPipeCutMm, 0.001)
+        assertEquals(640.146, default.diagonalPipeCutMm, 0.001)
+        assertEquals(469.520, default.outletPipeCutMm, 0.001)
+
+        listOf(
+            InstallationJobInput(),
+            InstallationJobInput(
+                nominalDiameter = 100,
+                pressureClass = 25,
+                alongMm = 2_600.0,
+                lateralOffsetMm = 800.0,
+                angleDeg = 60.0,
+                quantity = 3,
+                targetOffsetMm = 800.0,
+                overallFaceToFaceMm = 2_600.0,
+            ),
+            InstallationJobInput(
+                nominalDiameter = 25,
+                alongMm = 1_200.0,
+                lateralOffsetMm = 300.0,
+                verticalOffsetMm = 400.0,
+                angleDeg = 30.0,
+                targetOffsetMm = 500.0,
+                overallFaceToFaceMm = 1_200.0,
+            ),
+        ).forEach { input ->
+            // What the workshop calculated before an offset could be placed: the job's own sizes, halved.
+            val before = calculateFlangedOffsetAssembly(
+                FlangedOffsetAssemblyInput(
+                    dn = input.nominalDiameter,
+                    pn = input.pressureClass,
+                    targetOffsetMm = input.targetOffsetMm,
+                    overallFaceToFaceMm = input.overallFaceToFaceMm,
+                    angleDeg = input.angleDeg,
+                    weldGapMm = input.weldGapMm,
+                    quantity = input.quantity,
+                    stockLengthMm = input.stockLengthMm.toDouble(),
+                    sawKerfMm = input.sawKerfMm,
+                ),
+            )
+            val now = workshopAssembly(job(InstallationTaskType.FLANGED_OFFSET, input))
+            val label = "DN ${input.nominalDiameter}"
+            assertEquals(label, before.cuts.map { it.code to it.quantity }, now.cuts.map { it.code to it.quantity })
+            before.cuts.zip(now.cuts).forEach { (old, new) -> assertEquals(label, old.lengthMm, new.lengthMm, 1e-9) }
+            assertEquals(label, before.stockBars.map { it.cutsMm.size }, now.stockBars.map { it.cutsMm.size })
+            before.stockBars.zip(now.stockBars).forEach { (old, new) ->
+                old.cutsMm.zip(new.cutsMm).forEach { (a, b) -> assertEquals(label, a, b, 1e-9) }
+                assertEquals(label, old.offcutMm, new.offcutMm, 1e-9)
+            }
+            assertEquals(label, before.totalNetPipeLengthMm, now.totalNetPipeLengthMm, 1e-9)
+            assertEquals(label, before.totalPipeMassKg, now.totalPipeMassKg, 1e-9)
+            assertEquals(label, before.weldCount, now.weldCount)
+            assertEquals(label, before.flangeBoltCount, now.flangeBoltCount)
+            assertEquals(label, before.diagonalCenterTravelMm, now.diagonalCenterTravelMm, 1e-9)
+            assertEquals(label, before.horizontalCenterAdvanceMm, now.horizontalCenterAdvanceMm, 1e-9)
+            assertEquals(label, before.endFace.x, now.endFace.x, 1e-9)
+            assertEquals(label, before.endFace.y, now.endFace.y, 1e-9)
+        }
+    }
+
+    @Test fun `any other task still borrows the catalog parts of a spool that always lays out`() {
+        // Far too small for a real spool, and placed: neither matters to a borrowed profile.
+        val input = InstallationJobInput(
+            alongMm = 900.0,
+            lateralOffsetMm = 120.0,
+            targetOffsetMm = 120.0,
+            overallFaceToFaceMm = 900.0,
+            offsetPlacement = InstallationOffsetPlacement.START,
+        )
+        val borrowed = calculateFlangedOffsetAssembly(FlangedOffsetAssemblyInput(50, 16, 500.0, 4_000.0))
+        InstallationTaskType.entries.filter { it != InstallationTaskType.FLANGED_OFFSET }.forEach { task ->
+            assertEquals(task.name, borrowed, workshopAssembly(job(task, input)))
+        }
+    }
+
+    @Test fun `a long run, a large offset or a short bar never takes the borrowed spool down`() {
+        // A 13 m run used to borrow a 13 m spool: its tails no longer fitted the 6 m bar, the
+        // calculation failed and the flat offset lost its 3D card.
+        val borrowed = calculateFlangedOffsetAssembly(FlangedOffsetAssemblyInput(50, 16, 500.0, 4_000.0))
+        val long = InstallationJobInput(
+            alongMm = 13_000.0,
+            lateralOffsetMm = 2_400.0,
+            targetOffsetMm = 2_400.0,
+            overallFaceToFaceMm = 13_000.0,
+            stockLengthMm = 1_000,
+        )
+        listOf(InstallationTaskType.FLAT_OFFSET, InstallationTaskType.ROLLING_OFFSET, InstallationTaskType.STRAIGHT_INSERT)
+            .forEach { task -> assertEquals(task.name, borrowed, workshopAssembly(job(task, long))) }
+    }
+
+    /** Whatever the 3D route refuses, the cut list refuses too, and the other way round. */
+    @Test fun `a flange to flange spool is refused exactly where the 3D route refuses it`() {
+        val engine = DefaultFabrication3DEngine()
+        val profile = calculateFlangedOffsetAssembly(
+            FlangedOffsetAssemblyInput(50, 16, 500.0, 4_000.0),
+        ).toAssemblyProfile3D()
+        fun agree(label: String, input: InstallationJobInput) {
+            val job = job(InstallationTaskType.FLANGED_OFFSET, input)
+            val listed = runCatching { workshopAssembly(job) }
+            val routed = engine.router.solve(installerRouteRequest(job).toRouteRequest(profile)).getOrNull()
+            assertEquals(label, routed != null, listed.isSuccess)
+            listed.exceptionOrNull()?.let { assertTrue(label, it is CalculationException) }
+            if (routed != null) {
+                listed.getOrThrow().cuts.zip(routed.pipeCuts).forEach { (cut, solved) ->
+                    assertEquals(label, solved.lengthMm, cut.lengthMm, AGREEMENT_MM)
+                }
+            }
+        }
+        OFFSET_ELBOW_ANGLES.forEach { angle ->
+            InstallationOffsetPlacement.entries.forEach { placement ->
+                val base = InstallationJobInput(
+                    alongMm = 2_400.0,
+                    lateralOffsetMm = 500.0,
+                    angleDeg = angle,
+                    offsetPlacement = placement,
+                    offsetLeadMm = 300.0,
+                )
+                val request = installerRouteRequest(job(InstallationTaskType.FLANGED_OFFSET, base))
+                val setOut = requireNotNull(offsetSetOut(request, profile, angle))
+                listOf(-0.5, 0.5).forEach { step ->
+                    agree("$angle° $placement run $step", base.copy(alongMm = setOut.minimumAlongMm + step))
+                    agree("$angle° $placement offset $step", base.copy(lateralOffsetMm = setOut.minimumOffsetMm + step))
+                    if (placement == InstallationOffsetPlacement.EXACT) {
+                        agree("$angle° lead $step", base.copy(offsetLeadMm = setOut.maximumLeadMm + step))
+                    }
+                }
+            }
+        }
+    }
+
     @Test fun `prepared fitter templates replay through the real chain engine`() {
         val engine = DefaultFabrication3DEngine()
         val profile = calculateFlangedOffsetAssembly(
@@ -285,5 +498,10 @@ class InstallerWorkflowTest {
             val editor = engine.chains.fromPlan(profile, requireNotNull(request.manualTemplate)).getOrNull()
             assertNotNull(task.name, editor)
         }
+    }
+
+    private companion object {
+        /** Two numbers for one cut may differ by rounding only; the screen shows tenths of a millimetre. */
+        const val AGREEMENT_MM = 1e-6
     }
 }
