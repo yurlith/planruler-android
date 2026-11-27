@@ -4,6 +4,7 @@ import android.view.WindowManager
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
@@ -308,6 +309,24 @@ class Assembly3DEditorJourneyTest {
             .fetchSemanticsNode()
         device.waitForIdle()
         device.takeScreenshot(java.io.File(context.getExternalFilesDir(null), "flanged-cut-list.png"))
+    }
+
+    @Test
+    fun profileChangesKeepTheParameterControlsOpen() {
+        openInstallationWorkshop()
+        tap(PipeCalculatorTags.Assembly3DParametersMode)
+        awaitTag(PipeCalculatorTags.Assembly3DEffectiveRadius, "76.0")
+        tapText("1D")
+        awaitTag(PipeCalculatorTags.Assembly3DEffectiveRadius, "50.0")
+        // The route's 300 ms debounce must finish before checking that it did not
+        // steal the selected pane. Awaiting the profile alone misses that delayed switch.
+        repeat(60) {
+            compose.mainClock.advanceTimeByFrame()
+            compose.waitForIdle()
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag(PipeCalculatorTags.Assembly3DParametersMode).assertIsSelected()
+        compose.onNodeWithTag(PipeCalculatorTags.Assembly3DEffectiveRadius).fetchSemanticsNode()
     }
 
     @Test
