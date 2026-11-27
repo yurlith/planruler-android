@@ -291,6 +291,17 @@ class Assembly3DEditorJourneyTest {
         }
         compose.activityRule.scenario.recreate()
         compose.waitForIdle()
+        compose.onNodeWithTag(PlanRulerTestTags.navigation("WORKSHOP")).performClick()
+        if (exists(PlanRulerTestTags.WorkshopRoot)) {
+            compose.onNodeWithTag(PlanRulerTestTags.WorkshopRoot)
+                .performScrollToNode(hasTestTag(PlanRulerTestTags.workshopTool("INSTALLATION")))
+            compose.onNodeWithTag(PlanRulerTestTags.workshopTool("INSTALLATION")).performClick()
+        }
+        awaitExists(PipeCalculatorTags.InstallationList)
+        compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
+            .performScrollToNode(hasTestTag("installation-sections"))
+        compose.onNodeWithTag("installation-sections").performScrollToNode(hasText("Cut list"))
+        tapText("Cut list")
         compose.onNodeWithTag(PipeCalculatorTags.InstallationList)
             .performScrollToNode(hasTestTag(PipeCalculatorTags.OffsetAssemblyResults))
         compose.onNode(hasText("50.0 mm") and hasAnyAncestor(hasTestTag(PipeCalculatorTags.OffsetAssemblyResults)))
