@@ -23,9 +23,14 @@ jobs:
       - name: Build and verify
         run: |
           chmod +x gradlew
-          ./gradlew test lint :app:assembleRelease --stacktrace
+          ./gradlew test lint :app:assembleRelease :app:assemblePreview --stacktrace
       - uses: actions/upload-artifact@v7
         with:
           name: planruler-unsigned-release
           path: app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: planruler-preview-apk
+          path: app/build/outputs/apk/preview/app-preview.apk
           if-no-files-found: error

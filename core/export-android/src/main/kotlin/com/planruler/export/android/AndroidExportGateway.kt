@@ -27,6 +27,7 @@ import com.planruler.model.PlanProject
 import com.planruler.model.calculateTakeoffTotals
 import com.planruler.model.currentPageSource
 import com.planruler.model.verticalLengthMm
+import com.planruler.model.pipeBendAngles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
@@ -87,6 +88,30 @@ class AndroidExportGateway(context: Context) : ExportGateway {
         }
     }
 
+    override suspend fun exportIsometricPdf(
+        targetUri: String,
+        title: String,
+        drawing: com.planruler.isometric.IsoPaperDrawing,
+    ): ExportResult = withContext(Dispatchers.IO) {
+        var temporary: File? = null
+        try {
+            val file = File.createTempFile("planruler-isometric-", ".pdf", app.cacheDir)
+            temporary = file
+            file.outputStream().use { writeIsometricPdf(title, drawing, it) }
+            resolver.openOutputStream(Uri.parse(targetUri), "wt").use { target ->
+                requireNotNull(target)
+                file.inputStream().use { it.copyTo(target) }
+            }
+            ExportResult.Success
+        } catch (_: SecurityException) {
+            ExportResult.Error(ExportError.PermissionDenied)
+        } catch (e: Exception) {
+            ExportResult.Error(ExportError.Io(e.message ?: "Export failed"))
+        } finally {
+            temporary?.delete()
+        }
+    }
+
     private fun writeCsv(request: ExportRequest, output: OutputStream) {
         val project = request.project
         val delimiter = request.csvDelimiter.takeIf { it.isNotEmpty() } ?: ","
@@ -98,7 +123,7 @@ class AndroidExportGateway(context: Context) : ExportGateway {
                     "ID", "type", "template", "category", "material", "diameter", "size", "layer", "name", "page",
                     "length", "perimeter", "area", "angle", "unit", "quantity_multiplier", "waste_percent",
                     "base_total", "with_waste_total", "comment", "revision_id", "review_status",
-                    "source_measurement_id", "reviewed_at",
+                    "source_measurement_id", "reviewed_at", "elbows", "elbow_angles",
                 ).joinToString(delimiter),
             )
             project.measurements.forEach { measurement ->
@@ -141,6 +166,9 @@ class AndroidExportGateway(context: Context) : ExportGateway {
                         measurement.reviewStatus.name,
                         csv(measurement.sourceMeasurementId?.value.orEmpty()),
                         measurement.reviewedAtEpochMs?.let(::timestamp).orEmpty(),
+                        pipeBendAngles(measurement).size,
+                        csv(pipeBendAngles(measurement).groupingBy { it }.eachCount().toSortedMap()
+                            .entries.joinToString("; ") { "${it.key}deg x ${it.value}" }),
                     ).joinToString(delimiter),
                 )
             }

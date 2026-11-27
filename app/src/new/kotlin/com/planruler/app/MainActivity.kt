@@ -331,6 +331,9 @@ private fun PlanRulerRoot(
                 vm.export(it.toString(), ExportFormat.JSON, pendingPageSelection, pendingFirstPage, pendingLastPage)
             }
         }
+        val isoPdfExporter = rememberLauncherForActivityResult(
+            ActivityResultContracts.CreateDocument("application/pdf"),
+        ) { uri -> uri?.let { vm.exportIsometric(it.toString(), IsometricExportFormat.PDF) } }
         val isoSvgExporter = rememberLauncherForActivityResult(
             ActivityResultContracts.CreateDocument("image/svg+xml"),
         ) { uri -> uri?.let { vm.exportIsometric(it.toString(), IsometricExportFormat.SVG) } }
@@ -394,6 +397,7 @@ private fun PlanRulerRoot(
             onExportIsometric = { format ->
                 val name = vm.isometricExportName(format)
                 when (format) {
+                    IsometricExportFormat.PDF -> isoPdfExporter.launch(name)
                     IsometricExportFormat.SVG -> isoSvgExporter.launch(name)
                     IsometricExportFormat.DXF -> isoDxfExporter.launch(name)
                     IsometricExportFormat.CSV -> isoCsvExporter.launch(name)

@@ -800,17 +800,21 @@ class WorkspaceViewModel(
     }
 
     fun exportIsometric(uri: String, format: IsometricExportFormat) {
+        val sheet = isometric.engine.sheet
+        val exportSettings = settings
         viewModelScope.launch {
             saveNow()
-            val sheet = isometric.engine.sheet
-            val content = isometricDocument(
-                sheet = sheet,
-                format = format,
-                text = Wt(settings.language),
-                language = settings.language,
-                csvDelimiter = settings.csvDelimiter,
-            )
-            val result = exports.exportText(uri, content)
+            val result = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                if (format == IsometricExportFormat.PDF) {
+                    val drawing = com.planruler.isometric.IsoPaperDrawing.build(sheet, IsometricLabeler(exportSettings.language))
+                    exports.exportIsometricPdf(uri, sheet.name, drawing)
+                } else {
+                    val content = isometricDocument(
+                        sheet, format, Wt(exportSettings.language), exportSettings.language, exportSettings.csvDelimiter,
+                    )
+                    exports.exportText(uri, content)
+                }
+            }
             mutableUi.value = ui.value.copy(
                 message = if (result is ExportResult.Success) UiMessage.ExportDone else UiMessage.ExportFailed,
             )

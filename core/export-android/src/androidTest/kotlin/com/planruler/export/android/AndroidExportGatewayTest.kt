@@ -40,6 +40,20 @@ import java.io.FileOutputStream
 
 @RunWith(AndroidJUnit4::class)
 class AndroidExportGatewayTest {
+    @Test fun pipeScheduleExportsBendsByAngle() = runBlocking {
+        val project = project(createTwoPagePdf()).let { original -> original.copy(measurements = listOf(
+            original.measurements.first().copy(type = MeasurementType.POLYLINE,
+                points = listOf(DocPoint(0.0, 0.0), DocPoint(100.0, 0.0), DocPoint(100.0, 100.0), DocPoint(200.0, 200.0)),
+                takeoff = TakeoffProperties(category = com.planruler.model.TradeCategory.HEATING),
+                route = com.planruler.model.PipeRoute(risesMm = listOf(0.0, 0.0, 0.0, 2700.0))),
+        )) }
+        val target = File(context.cacheDir, "pipe-bends.csv")
+        assertEquals(ExportResult.Success, AndroidExportGateway(context).export(
+            ExportRequest(project, Uri.fromFile(target).toString(), ExportFormat.CSV)))
+        val csv = target.readText()
+        assertTrue(csv.lineSequence().first().endsWith("elbows,elbow_angles"))
+        assertTrue(csv.contains(",3,\"45deg x 1; 90deg x 2\""))
+    }
     private val context = ApplicationProvider.getApplicationContext<Context>()
 
     @Test

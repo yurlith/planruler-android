@@ -112,6 +112,7 @@ fun WorkspaceScreen(
     var overlay by remember { mutableStateOf<WorkspaceOverlay?>(null) }
     var calibrationStep by remember { mutableStateOf(CalibrationStep.CHOICE) }
     var calibrationPoints by remember { mutableStateOf(emptyList<DocPoint>()) }
+    var calibrationDragBefore by remember { mutableStateOf<List<DocPoint>?>(null) }
     var pickingCalibration by remember { mutableStateOf(false) }
     var pickingVerification by remember { mutableStateOf(false) }
     var annotationPoint by remember { mutableStateOf<DocPoint?>(null) }
@@ -617,13 +618,15 @@ fun WorkspaceScreen(
                         }
                     },
                     onLongPress = { _, hit ->
-                        haptic(HapticFeedbackConstants.LONG_PRESS)
-                        if (hit != null) {
-                            selectedId = hit.measurement.id
-                            selectedVertex = hit.vertexIndex
-                            overlay = WorkspaceOverlay.PROPERTIES
-                        } else {
-                            overlay = WorkspaceOverlay.MORE_TOOLS
+                        if (!pickingCalibration && !pickingVerification) {
+                            haptic(HapticFeedbackConstants.LONG_PRESS)
+                            if (hit != null) {
+                                selectedId = hit.measurement.id
+                                selectedVertex = hit.vertexIndex
+                                overlay = WorkspaceOverlay.PROPERTIES
+                            } else {
+                                overlay = WorkspaceOverlay.MORE_TOOLS
+                            }
                         }
                     },
                     onDragStart = { point, hit ->
@@ -631,7 +634,12 @@ fun WorkspaceScreen(
                             tool != WorkspaceTool.NAVIGATE &&
                             hit != null &&
                             draft == null
-                        if (editable) {
+                        if (pickingCalibration || pickingVerification) {
+                            calibrationDragBefore = calibrationPoints
+                            calibrationPoints = listOf(point, point)
+                            magnifierFocus = point
+                            true
+                        } else if (editable) {
                             val target = requireNotNull(hit)
                             // A ruler is resized by dragging either handle or the line itself.
                             // When the line body is grabbed, move the endpoint nearest to the
@@ -668,7 +676,10 @@ fun WorkspaceScreen(
                     onDrag = { point ->
                         val id = selectedId
                         val vertex = dragVertex
-                        if (draggingNewDistance) {
+                        if (calibrationDragBefore != null) {
+                            calibrationPoints = listOf(calibrationPoints.first(), point)
+                            magnifierFocus = point
+                        } else if (draggingNewDistance) {
                             val anchor = dragStart
                             val resolved = snapFor(point, anchor)
                             magnifierFocus = resolved
@@ -687,7 +698,18 @@ fun WorkspaceScreen(
                         }
                     },
                     onDragEnd = {
-                        if (draggingNewDistance) {
+                        val calibrationBefore = calibrationDragBefore
+                        if (calibrationBefore != null) {
+                            calibrationDragBefore = null
+                            if (calibrationPoints.first().distanceTo(calibrationPoints.last()) > 0.0) {
+                                calibrationStep = if (pickingVerification) CalibrationStep.VERIFY else CalibrationStep.LENGTH
+                                pickingCalibration = false
+                                pickingVerification = false
+                                overlay = WorkspaceOverlay.CALIBRATION
+                            } else {
+                                calibrationPoints = calibrationBefore
+                            }
+                        } else if (draggingNewDistance) {
                             viewModel.commit()
                             draggingNewDistance = false
                             selectedId = null
@@ -703,7 +725,11 @@ fun WorkspaceScreen(
                         snapResult = null
                     },
                     onDragCancel = {
-                        if (draggingNewDistance) {
+                        val calibrationBefore = calibrationDragBefore
+                        if (calibrationBefore != null) {
+                            calibrationPoints = calibrationBefore
+                            calibrationDragBefore = null
+                        } else if (draggingNewDistance) {
                             viewModel.cancel()
                             draggingNewDistance = false
                         } else {

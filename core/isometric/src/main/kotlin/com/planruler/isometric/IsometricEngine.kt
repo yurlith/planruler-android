@@ -177,7 +177,14 @@ class IsometricEngine(
     /** Moves one node; connected runs follow as straight lines. */
     fun moveNode(nodeId: IsoNodeId, position: Vec3): IsoResult<Unit> {
         if (!position.isFinite) return IsoResult.Error(IsoError.Invalid("Position must be finite"))
-        if (sheet.nodes.none { it.id == nodeId }) return IsoResult.Error(IsoError.NotFound(nodeId.value))
+        val current = sheet.nodes.firstOrNull { it.id == nodeId }
+            ?: return IsoResult.Error(IsoError.NotFound(nodeId.value))
+        if (current.position.toVec() == position) return IsoResult.Ok(Unit)
+        val network = IsoNetwork(sheet)
+        if (network.incident[nodeId].orEmpty().any { pipe ->
+                network.position(network.other(pipe, nodeId))?.distanceTo(position)?.let { it < IsoNetwork.MIN_LENGTH_MM } == true
+            }
+        ) return IsoResult.Error(IsoError.ZeroLength)
         commit(sheet.copy(nodes = sheet.nodes.map { if (it.id == nodeId) it.copy(position = position.toIsoPoint()) else it }))
         return IsoResult.Ok(Unit)
     }

@@ -22,6 +22,7 @@ dependencies {
     implementation(project(":core:project-api"))
     implementation(project(":core:export-api"))
     implementation(project(":core:isometric"))
+    implementation(project(":core:pipe-calculator"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

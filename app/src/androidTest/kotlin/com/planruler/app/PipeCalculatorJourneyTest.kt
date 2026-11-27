@@ -10,6 +10,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTouchInput
@@ -28,6 +30,21 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class PipeCalculatorJourneyTest {
+    @Test fun catalogSearchAndElbowGeometryFollowTheSelectedDiameter() {
+        compose.onNodeWithTag(PlanRulerTestTags.navigation("WORKSHOP")).performClick()
+        compose.onNodeWithTag(PlanRulerTestTags.WorkshopRoot)
+            .performScrollToNode(hasTestTag(PlanRulerTestTags.workshopTool("CATALOG")))
+        compose.onNodeWithTag(PlanRulerTestTags.workshopTool("CATALOG")).performClick()
+        compose.onNodeWithTag("catalog-search").performTextInput("DN 50")
+        compose.onNodeWithText("DN 50 · Ø", substring = true).assertIsDisplayed()
+        compose.onNodeWithText("Elbows").performClick()
+        compose.onNodeWithTag(PipeCalculatorTags.CatalogList)
+            .performScrollToNode(hasText("Centerline radius R, mm"))
+        compose.onNodeWithText("Centerline radius R, mm").performTextReplacement("100")
+        compose.onNodeWithText("90°").performClick()
+        compose.onNodeWithText("100.0 mm").assertIsDisplayed()
+    }
+
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>()
 

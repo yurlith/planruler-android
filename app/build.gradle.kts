@@ -53,6 +53,12 @@ android {
         debug {
             isPseudoLocalesEnabled = true
         }
+        create("preview") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".preview"
+            versionNameSuffix = "-isometric-preview"
+            matchingFallbacks += listOf("debug")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
