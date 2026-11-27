@@ -547,6 +547,23 @@ private fun OffsetAdvice(
     }
 }
 
+/**
+ * The same fit advice on its own card, for a spool the 2D calculation already refused: there is
+ * no 3D route to wait for, so the fitter reads at once what to change.
+ */
+@Composable
+internal fun OffsetAdviceCard(
+    advice: OffsetFitAdvice,
+    language: AppLanguage,
+    onAngle: ((Double) -> Unit)?,
+) {
+    ElevatedCard(Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            OffsetAdvice(advice.request, advice.profile, language, onAngle)
+        }
+    }
+}
+
 /** Names a straight cut by where it sits; an offset reads as before, sloped piece, after. */
 internal fun routeCutName(topology: RouteTopology3D, index: Int, count: Int, language: AppLanguage): String {
     fun t(russian: String, english: String) = localizedUi(language, russian, english)

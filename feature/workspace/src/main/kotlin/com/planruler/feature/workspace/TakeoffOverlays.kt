@@ -245,6 +245,14 @@ fun TemplateEditorDialog(
                         )
                     }
                 }
+                if (type == MeasurementType.POLYLINE || type == MeasurementType.DISTANCE) {
+                    PipeCatalogButton(text) { pipe ->
+                        material = pipe.material
+                        diameter = "DN${pipe.dn}"
+                        size = "Ø${pipe.outsideDiameterMm} × ${pipe.wallThicknessMm} mm"
+                        if (category !in setOf(TradeCategory.HEATING, TradeCategory.PLUMBING)) category = TradeCategory.PLUMBING
+                    }
+                }
                 Text(text.category, style = MaterialTheme.typography.labelLarge)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
                     TradeCategory.entries.forEach { candidate ->

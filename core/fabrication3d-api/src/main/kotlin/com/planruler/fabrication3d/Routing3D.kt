@@ -36,11 +36,26 @@ data class RouteRequest3D(
  * leaves over is shared between the cut before it and the cut after it.
  */
 sealed interface OffsetPlacement3D {
+    /**
+     * The cut before the offset, out of [spareMm] of straight pipe that the cut before it and
+     * the cut after it share, neither of which may be shorter than [minimumCutMm]. The route
+     * solver and the workshop's flanged spool both split their straight here, so the two
+     * calculations cannot place the same offset differently.
+     */
+    fun leadCutMm(spareMm: Double, minimumCutMm: Double): Double
+
     /** [leadShare] of the spare straight goes before the offset: 0 right at the start, 1 at the end. */
-    data class Share(val leadShare: Double) : OffsetPlacement3D
+    data class Share(val leadShare: Double) : OffsetPlacement3D {
+        // The share runs over what is left once both sides keep their shortest cut, so 0 and 1
+        // bring the offset as close to a terminal as a real cut allows, and 0.5 is the middle.
+        override fun leadCutMm(spareMm: Double, minimumCutMm: Double): Double =
+            minimumCutMm + leadShare * (spareMm - 2.0 * minimumCutMm)
+    }
 
     /** The cut before the offset is fixed; the cut after it takes what is left. */
-    data class LeadCut(val lengthMm: Double) : OffsetPlacement3D
+    data class LeadCut(val lengthMm: Double) : OffsetPlacement3D {
+        override fun leadCutMm(spareMm: Double, minimumCutMm: Double): Double = lengthMm
+    }
 
     companion object {
         val CENTERED: OffsetPlacement3D = Share(0.5)

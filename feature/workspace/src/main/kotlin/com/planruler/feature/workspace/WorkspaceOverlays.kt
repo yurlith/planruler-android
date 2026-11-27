@@ -535,6 +535,19 @@ fun PropertiesSheet(
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (measurement.type == MeasurementType.DISTANCE || measurement.type == MeasurementType.POLYLINE) {
+                    PipeCatalogButton(text) { pipe ->
+                        material = pipe.material
+                        diameter = "DN${pipe.dn}"
+                        size = "Ø${pipe.outsideDiameterMm} × ${pipe.wallThicknessMm} mm"
+                        if (category !in setOf(TradeCategory.HEATING, TradeCategory.PLUMBING)) category = TradeCategory.PLUMBING
+                    }
+                    val bends = pipeBendAngles(measurement).groupingBy { it }.eachCount().toSortedMap()
+                    if (bends.isNotEmpty()) Text(
+                        "${text.isoElbows}: " + bends.entries.joinToString(" · ") { "${it.key}° × ${it.value}" },
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                }
                 SectionHeader(text.category)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(Space.x2)) {
                     TradeCategory.entries.forEach { candidate ->

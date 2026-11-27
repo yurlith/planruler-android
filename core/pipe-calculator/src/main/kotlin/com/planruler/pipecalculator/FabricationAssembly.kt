@@ -44,8 +44,15 @@ data class FlangedOffsetAssemblyInput(
     val quantity: Int = 1,
     val stockLengthMm: Double = 6_000.0,
     val sawKerfMm: Double = 3.0,
-    /** Share of the available horizontal straight length assigned to P1. */
+    /** Share of the available horizontal straight length assigned to P1, unless [inletPipeCutMm] is given. */
     val inletTailShare: Double = 0.5,
+    /**
+     * The exact P1 cut, for an offset placed somewhere other than the middle; P3 then takes the
+     * rest of the straight. Null splits the straight by [inletTailShare].
+     */
+    val inletPipeCutMm: Double? = null,
+    /** Shortest pipe the shop may cut: P1, P2 and P3 must each be at least this long. */
+    val minimumPipeCutMm: Double = 0.0,
 )
 
 data class FlangedOffsetAssemblyResult(
@@ -94,7 +101,16 @@ fun calculateFlangedOffsetAssembly(input: FlangedOffsetAssemblyInput): FlangedOf
     val gap = within(input.weldGapMm, 0.0, 10.0, "Weld gap")
     val stockLength = positive(input.stockLengthMm, "Stock length")
     val kerf = within(input.sawKerfMm, 0.0, 20.0, "Saw kerf")
-    val inletShare = within(input.inletTailShare, 0.05, 0.95, "Inlet tail share")
+    val minimumCut = nonNegative(input.minimumPipeCutMm, "Minimum pipe cut")
+    // An exact P1 decides the split on its own, so the share is only checked when it is used.
+    val explicitInletCut = input.inletPipeCutMm?.also {
+        if (!it.isFinite()) throw CalculationException("Inlet pipe cut must be a finite length")
+    }
+    val inletShare = if (explicitInletCut == null) {
+        within(input.inletTailShare, 0.05, 0.95, "Inlet tail share")
+    } else {
+        input.inletTailShare
+    }
     if (input.quantity !in 1..1_000) throw CalculationException("Quantity must be between 1 and 1000")
 
     val pipe = PIPE_INSTALLATION_SERIES.singleOrNull { it.dn == input.dn }
@@ -115,6 +131,11 @@ fun calculateFlangedOffsetAssembly(input: FlangedOffsetAssemblyInput): FlangedOf
     if (diagonalCut <= 0.0) {
         throw CalculationException("Target offset is too small for the selected DN, angle and weld gaps")
     }
+    if (diagonalCut + CUT_TOLERANCE_MM < minimumCut) {
+        throw CalculationException(
+            "Target offset is too small: the sloped pipe P2 would be shorter than the minimum cut of $minimumCut mm",
+        )
+    }
 
     val minimumOverall =
         2.0 * flange.faceToWeldMm + 4.0 * gap + 2.0 * takeout + horizontalAdvance
@@ -122,10 +143,14 @@ fun calculateFlangedOffsetAssembly(input: FlangedOffsetAssemblyInput): FlangedOf
     if (availableTailLength <= 0.0) {
         throw CalculationException("Overall face-to-face length is too small for the flanges and elbows")
     }
-    val inletCut = availableTailLength * inletShare
+    val inletCut = explicitInletCut ?: availableTailLength * inletShare
     val outletCut = availableTailLength - inletCut
     if (inletCut <= 0.0 || outletCut <= 0.0) {
         throw CalculationException("Straight tail pipe cuts must be positive")
+    }
+    // Same tolerance as the 3D route solver, so both refuse exactly the same spools.
+    if (inletCut + CUT_TOLERANCE_MM < minimumCut || outletCut + CUT_TOLERANCE_MM < minimumCut) {
+        throw CalculationException("Straight tail pipe cuts P1 and P3 must each be at least the minimum cut of $minimumCut mm")
     }
 
     val p0 = FabricationPointMm(0.0, 0.0)
@@ -237,6 +262,9 @@ private fun createStockPlan(
         )
     }
 }
+
+/** How far below the minimum a cut may land through rounding alone; the 3D route solver uses the same. */
+private const val CUT_TOLERANCE_MM = 1e-6
 
 private operator fun FabricationPointMm.plus(other: FabricationPointMm) =
     FabricationPointMm(x + other.x, y + other.y)

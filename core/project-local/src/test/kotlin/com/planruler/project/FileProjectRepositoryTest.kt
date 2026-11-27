@@ -13,6 +13,21 @@ import org.junit.Test
 import java.nio.file.Files
 
 class FileProjectRepositoryTest {
+    @Test fun `isometric sheets and plan risers survive repository round trip`() = runBlocking {
+        val root = Files.createTempDirectory("planruler-isometric").toFile()
+        try {
+            val first = IsoNode(IsoNodeId("a"), IsoPoint(0.0, 0.0, 0.0))
+            val second = IsoNode(IsoNodeId("b"), IsoPoint(0.0, 0.0, 2700.0))
+            val sheet = IsometricSheet(IsometricSheetId("iso"), "Котельная", nodes = listOf(first, second),
+                pipes = listOf(IsoPipe(IsoPipeId("pipe"), first.id, second.id, IsoPipeSpec(IsoPipeSystem.HEATING_SUPPLY, 50, "Ø60.3 × 2.9 mm"))),
+                createdAtEpochMs = 1, modifiedAtEpochMs = 2)
+            val original = project().let { it.copy(isometrics = listOf(sheet), activeIsometricId = sheet.id,
+                measurements = it.measurements.map { measurement -> measurement.copy(route = PipeRoute(risesMm = listOf(0.0, 2700.0))) }) }
+            assertTrue(FileProjectRepository(root).save(original) is ProjectResult.Ok)
+            val restored = (FileProjectRepository(root).load(original.id) as ProjectResult.Ok).value
+            assertEquals(original, restored)
+        } finally { root.deleteRecursively() }
+    }
     private fun project(id: String = "p1") = PlanProject(
         id = ProjectId(id),
         name = "Test",

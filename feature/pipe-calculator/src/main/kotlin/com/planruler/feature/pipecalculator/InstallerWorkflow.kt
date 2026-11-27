@@ -5,6 +5,7 @@ import com.planruler.fabrication3d.ChainStep3D
 import com.planruler.fabrication3d.ChainTerminal3D
 import com.planruler.fabrication3d.OffsetPlacement3D
 import com.planruler.fabrication3d.Vec3
+import com.planruler.fabrication3d.catalog.toAssemblyProfile3D
 import com.planruler.model.InstallationEndDirection
 import com.planruler.model.InstallationJob
 import com.planruler.model.InstallationJobInput
@@ -13,7 +14,10 @@ import com.planruler.model.InstallationMeasurementReference
 import com.planruler.model.InstallationOffsetPlacement
 import com.planruler.model.InstallationTaskType
 import com.planruler.model.InstallationVerticalDirection
+import com.planruler.pipecalculator.FlangedOffsetAssemblyInput
+import com.planruler.pipecalculator.FlangedOffsetAssemblyResult
 import com.planruler.pipecalculator.PIPE_INSTALLATION_SERIES
+import com.planruler.pipecalculator.calculateFlangedOffsetAssembly
 import kotlin.math.atan2
 import kotlin.math.hypot
 import kotlin.math.max
@@ -129,6 +133,67 @@ internal fun installerRouteRequest(job: InstallationJob): InstallerRouteRequest 
         },
     )
 }
+
+/**
+ * The 2D spool calculation behind the workshop's hero, cut list, stock plan and passport, and
+ * the profile the 3D card is built from.
+ *
+ * For flange to flange it is the fitter's spool, laid out from the same measured target the 3D
+ * route closes on and split around the offset with the route solver's own rule
+ * ([OffsetPlacement3D.leadCutMm]) and shortest cut, so both calculations give one set of cuts
+ * for every placement and angle. Any other task only borrows the catalog parts of a spool large
+ * enough to always lay out; its real pieces come from the route.
+ */
+internal fun workshopAssembly(job: InstallationJob): FlangedOffsetAssemblyResult {
+    val input = job.input
+    if (job.taskType != InstallationTaskType.FLANGED_OFFSET) return borrowedCatalogSpool(input)
+    val request = installerRouteRequest(job)
+    val measured = request.measuredTarget
+    val spool = FlangedOffsetAssemblyInput(
+        dn = input.nominalDiameter,
+        pn = input.pressureClass,
+        targetOffsetMm = hypot(measured.y, measured.z),
+        overallFaceToFaceMm = measured.x,
+        angleDeg = input.angleDeg,
+        weldGapMm = input.weldGapMm,
+        quantity = input.quantity,
+        stockLengthMm = input.stockLengthMm.toDouble(),
+        sawKerfMm = input.sawKerfMm,
+    )
+    // The centred spool fixes the geometry: the straight both tails share and the catalog
+    // profile the route is solved with. If even the centred spool cannot be laid out, no
+    // placement can, so its refusal stands.
+    val centred = calculateFlangedOffsetAssembly(spool)
+    val minimumCut = centred.toAssemblyProfile3D().rules.minimumCutMm(request.minimumStraightMm)
+    val spare = centred.inletPipeCutMm + centred.outletPipeCutMm
+    return calculateFlangedOffsetAssembly(
+        spool.copy(
+            inletPipeCutMm = request.offsetPlacement.leadCutMm(spare, minimumCut),
+            minimumPipeCutMm = minimumCut,
+        ),
+    )
+}
+
+/**
+ * A spool that always lays out, lent to every task whose pieces come from the 3D route: only its
+ * catalog parts (pipe, elbow and flange for the job's DN/PN) and its weld gap are used. Its size,
+ * quantity and stock are fixed, so a long run, a large offset or a short stock bar on the job can
+ * never make the borrowed spool fail and take the 3D card with it (a 13 m run used to borrow a
+ * 13 m spool whose tails no longer fitted a 6 m bar).
+ */
+internal fun borrowedCatalogSpool(input: InstallationJobInput): FlangedOffsetAssemblyResult =
+    calculateFlangedOffsetAssembly(
+        FlangedOffsetAssemblyInput(
+            dn = input.nominalDiameter,
+            pn = input.pressureClass,
+            targetOffsetMm = 500.0,
+            overallFaceToFaceMm = 4_000.0,
+            // Only the catalog profile is borrowed. A large DN at 90° would not fit
+            // this dummy spool, even when the installer's real route is feasible.
+            angleDeg = 45.0,
+            weldGapMm = input.weldGapMm,
+        ),
+    )
 
 private fun radialReferenceOffset(reference: InstallationMeasurementReference, radiusMm: Double): Double =
     when (reference) {

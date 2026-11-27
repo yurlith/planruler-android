@@ -101,6 +101,12 @@ data class FabricationRules3D(
         return angleDeg.isFinite() && magnitude >= minElbowAngleDeg && magnitude <= maxElbowAngleDeg
     }
 
+    /**
+     * The shortest straight a route may cut: the fitter's [minimumStraightMm], never below the
+     * shop rule. Shared by the solver and by every calculation that has to agree with it.
+     */
+    fun minimumCutMm(minimumStraightMm: Double): Double = maxOf(minimumStraightMm, minPipeLengthMm)
+
     companion object {
         const val DEFAULT_MIN_PIPE_LENGTH_MM = 10.0
         const val DEFAULT_MAX_ELBOWS = 5

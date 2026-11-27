@@ -2,6 +2,10 @@ package com.planruler.feature.pipecalculator
 
 import com.planruler.fabrication3d.AssemblyProfile3D
 import com.planruler.fabrication3d.ChainTerminal3D
+import com.planruler.fabrication3d.OffsetPlacement3D
+import com.planruler.fabrication3d.catalog.toAssemblyProfile3D
+import com.planruler.model.InstallationJob
+import com.planruler.model.InstallationJobInput
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.hypot
@@ -40,6 +44,9 @@ internal data class OffsetSetOut(
     val offsetFits: Boolean get() = offsetMm + TOLERANCE_MM >= minimumOffsetMm
     val fits: Boolean get() = alongFits && offsetFits
 
+    /** Whether an exact cut of [leadCutMm] before the offset still leaves the shortest cut after it. */
+    fun leadFits(leadCutMm: Double): Boolean = leadCutMm <= maximumLeadMm + TOLERANCE_MM
+
     /** From the measured start point to the first bend centre, for a given cut before the offset. */
     fun firstBendMm(leadCutMm: Double): Double = startAllowanceMm + leadCutMm + weldGapMm + takeoutMm
 
@@ -66,7 +73,7 @@ internal fun offsetSetOut(request: InstallerRouteRequest, profile: AssemblyProfi
     val advance = if (angleDeg >= 90.0) 0.0 else offset / tan(radians)
     val takeout = profile.elbow.centerlineRadiusMm * tan(radians / 2.0)
     val gap = profile.weldGapMm
-    val minimumCut = maxOf(request.minimumStraightMm, profile.rules.minPipeLengthMm)
+    val minimumCut = profile.rules.minimumCutMm(request.minimumStraightMm)
     // What each end adds to the run besides the straight cuts: a flange with its weld, or the
     // gap left for the site weld to an existing pipe.
     val flangeAllowance = profile.flange.faceToWeldMm + gap
@@ -96,4 +103,42 @@ internal fun offsetSetOut(request: InstallerRouteRequest, profile: AssemblyProfi
 
 /** Standard angles at which the requested offset fits between its ends. */
 internal fun fittingOffsetAngles(request: InstallerRouteRequest, profile: AssemblyProfile3D): List<Double> =
-    OFFSET_ELBOW_ANGLES.filter { angle -> offsetSetOut(request, profile, angle)?.fits == true }
+    OFFSET_ELBOW_ANGLES.filter { angle ->
+        val setOut = offsetSetOut(request, profile, angle) ?: return@filter false
+        val lead = request.offsetPlacement as? OffsetPlacement3D.LeadCut
+        setOut.fits && (lead == null || setOut.leadFits(lead.lengthMm))
+    }
+
+/**
+ * True when the offset of [request] cannot be laid out at its own elbow angle: the run is too
+ * short, the offset too small, or an exact cut before the offset leaves no pipe after it.
+ */
+internal fun offsetDoesNotFit(request: InstallerRouteRequest, profile: AssemblyProfile3D): Boolean {
+    val angle = request.preferredAngleDeg ?: return false
+    val setOut = offsetSetOut(request, profile, angle) ?: return false
+    val lead = request.offsetPlacement as? OffsetPlacement3D.LeadCut
+    return !setOut.fits || (lead != null && !setOut.leadFits(lead.lengthMm))
+}
+
+/** What the screen needs to say why an offset does not fit, and which change would make it fit. */
+internal data class OffsetFitAdvice(val request: InstallerRouteRequest, val profile: AssemblyProfile3D)
+
+/**
+ * Advice for an offset job that cannot be laid out as measured. Null when the job is not an
+ * offset, or when it fails for another reason (an unknown flange, a cut longer than the stock
+ * bar), which the screen then reports as it is.
+ */
+internal fun offsetFitAdvice(job: InstallationJob): OffsetFitAdvice? {
+    if (!job.taskType.isOffset()) return null
+    val request = installerRouteRequest(job)
+    val profile = catalogProfile(job.input) ?: return null
+    return OffsetFitAdvice(request, profile).takeIf { offsetDoesNotFit(request, profile) }
+}
+
+/**
+ * The catalog profile the 3D card solves this job with, before any advanced override. It
+ * depends only on the catalog parts and the weld gap, so it is borrowed from a spool that always
+ * lays out, and is there even when the fitter's own spool is not.
+ */
+private fun catalogProfile(input: InstallationJobInput): AssemblyProfile3D? =
+    runCatching { borrowedCatalogSpool(input).toAssemblyProfile3D() }.getOrNull()

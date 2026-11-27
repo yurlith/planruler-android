@@ -151,9 +151,18 @@ class IsometricWorkspaceTest {
 
     @Test
     fun `export names come from the sheet and stay valid file names`() {
+        assertEquals("Котельная Т1.pdf", isometricFileName("Котельная Т1", IsometricExportFormat.PDF))
         assertEquals("Котельная Т1.svg", isometricFileName("Котельная Т1", IsometricExportFormat.SVG))
         assertEquals("a b c.dxf", isometricFileName("a/b:c", IsometricExportFormat.DXF))
         assertEquals("isometric.csv", isometricFileName("  ?*  ", IsometricExportFormat.CSV))
         assertEquals(64, isometricFileName("x".repeat(200), IsometricExportFormat.SVG).length)
+    }
+
+    @Test fun `bend detail distinguishes 45 and 90 degrees and vertical elbows`() {
+        val run = Measurement(MeasurementId("bends"), MeasurementType.POLYLINE,
+            listOf(DocPoint(0.0, 0.0), DocPoint(100.0, 0.0), DocPoint(100.0, 100.0), DocPoint(200.0, 200.0)),
+            takeoff = TakeoffProperties(category = TradeCategory.HEATING), createdAtEpochMs = 0)
+        assertEquals(listOf(90, 45), pipeBendAngles(run))
+        assertEquals(listOf(90, 90, 45, 90), pipeBendAngles(run.copy(route = PipeRoute(risesMm = listOf(0.0, 2700.0, 0.0, -500.0)))))
     }
 }

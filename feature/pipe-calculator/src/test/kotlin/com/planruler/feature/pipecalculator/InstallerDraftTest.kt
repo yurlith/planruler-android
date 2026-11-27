@@ -50,6 +50,31 @@ class InstallerDraftTest {
         assertEquals(InstallationMeasurementReference.FLANGE_FACE, flanged.endReference)
     }
 
+    @Test fun `flange to flange is an offset that can be placed, and it keeps its flanges`() {
+        val offsets = setOf(
+            InstallationTaskType.FLANGED_OFFSET,
+            InstallationTaskType.FLAT_OFFSET,
+            InstallationTaskType.ROLLING_OFFSET,
+        )
+        InstallationTaskType.entries.forEach { task -> assertEquals(task.name, task in offsets, task.isOffset()) }
+
+        val exact = draft().copy(offsetPlacement = InstallationOffsetPlacement.EXACT, offsetLead = "250")
+        val input = exact.toInputOrNull()!!
+        assertEquals(InstallationOffsetPlacement.EXACT, input.offsetPlacement)
+        assertEquals(250.0, input.offsetLeadMm, 0.0)
+
+        // Where the offset sits survives a change of task; the references follow the task.
+        val flanged = draft(task = InstallationTaskType.FLAT_OFFSET)
+            .copy(offsetPlacement = InstallationOffsetPlacement.END)
+            .selectTask(InstallationTaskType.FLANGED_OFFSET)
+        assertEquals(InstallationOffsetPlacement.END, flanged.offsetPlacement)
+        assertEquals(InstallationMeasurementReference.FLANGE_FACE, flanged.startReference)
+        assertEquals(InstallationMeasurementReference.FLANGE_FACE, flanged.endReference)
+        // Its flange faces do not make the site offsets flanged: they still start from pipe ends.
+        assertEquals(InstallationMeasurementReference.PIPE_FACE, flanged.selectTask(InstallationTaskType.ROLLING_OFFSET).startReference)
+        assertEquals(InstallationMeasurementReference.PIPE_FACE, flanged.selectTask(InstallationTaskType.FLAT_OFFSET).endReference)
+    }
+
     @Test fun `each task asks only for what it reads`() {
         assertTrue(InstallationTaskType.FLAT_OFFSET.usesLateral())
         assertFalse(InstallationTaskType.FLAT_OFFSET.usesVertical())
