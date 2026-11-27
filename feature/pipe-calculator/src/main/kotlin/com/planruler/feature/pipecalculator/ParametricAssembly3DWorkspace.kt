@@ -153,12 +153,14 @@ internal fun ParametricAssembly3DCard(
             onChainRecipeChanged(encodeChainPlan(it))
         }
     }
-    LaunchedEffect(state.profile, installerRequest) {
+    LaunchedEffect(state.profile, installerRequest, showAdvancedControls) {
         if (state.profile == null || installerRequest == null) return@LaunchedEffect
         when (installerRequest.calculationPath) {
             InstallerCalculationPath.AUTO_ROUTE -> {
                 delay(300)
-                viewModel.setMode(AssemblyWorkspaceMode3D.AUTO)
+                // Keep an explicitly selected advanced pane open while its catalog
+                // overrides recompute the route. Basic mode opens the guided answer.
+                if (!showAdvancedControls) viewModel.setMode(AssemblyWorkspaceMode3D.AUTO)
                 viewModel.solveRoute(
                     target = installerRequest.target,
                     direction = installerRequest.endDirection,
